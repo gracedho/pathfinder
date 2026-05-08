@@ -28,6 +28,8 @@ body{min-height:100vh;background:#161008;display:flex;align-items:flex-start;jus
 .ov-wrap.ov-dragging{opacity:.3;transform:scale(.98)}
 .ov-wrap.drag-above{box-shadow:0 -2px 0 #B8AEDC,0 -2px 8px rgba(136,120,194,.2);border-radius:18px}
 .ov-wrap.drag-below{box-shadow:0 2px 0 #B8AEDC,0 2px 8px rgba(136,120,194,.2);border-radius:18px}
+/* Touch drag ghost — floats under finger */
+#drag-ghost{position:fixed;pointer-events:none;z-index:999;opacity:.88;transform:scale(1.03) rotate(1.5deg);box-shadow:0 12px 36px rgba(0,0,0,.22);border-radius:18px;background:white;transition:none;left:0;top:0}
 
 /* ── Criticality badges ── */
 .crit-badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:20px;white-space:nowrap;flex-shrink:0;line-height:1.4}
@@ -536,7 +538,7 @@ input[type=range]{accent-color:#8878C2}
 <div id="detail-screen" class="detail-screen">
   <div class="det-hdr" style="background:linear-gradient(150deg,#0C3B3E,#1C7060)">
     <div class="row" style="gap:12px;margin-bottom:10px">
-      <button class="back-btn" onclick="closeDetail()">← Back</button>
+      <button class="back-btn" onclick="handleDetailBack()">← Back</button>
       <div id="det-title" style="font-size:19px;font-weight:800;color:white;letter-spacing:-.3px"></div>
     </div>
     <div class="row" style="justify-content:space-between;margin-bottom:5px">
@@ -565,6 +567,10 @@ input[type=range]{accent-color:#8878C2}
     <div style="background:white;border-radius:14px;overflow:hidden;margin-bottom:10px">
       <button class="action-btn" onclick="startTaskEdit()">
         <div class="action-icon">✏️</div><span style="flex:1">Edit task name</span><span style="color:#DDD5C8;font-size:16px">›</span>
+      </button>
+      <div class="action-divider"></div>
+      <button class="action-btn" onclick="startLocEdit()">
+        <div class="action-icon">📍</div><span style="flex:1">Edit location</span><span style="color:#DDD5C8;font-size:16px">›</span>
       </button>
       <div class="action-divider"></div>
       <button class="action-btn" onclick="openTaskList()">
@@ -597,6 +603,26 @@ input[type=range]{accent-color:#8878C2}
     <div style="display:flex;gap:10px">
       <button onclick="cancelTaskEdit()" style="flex:1;background:#F7F4EE;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:#7A6B5E">Cancel</button>
       <button onclick="saveTaskEdit()" style="flex:1;background:#8878C2;color:white;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LOCATION EDIT OVERLAY ═══ -->
+<div id="loc-edit-ov" class="edit-ov" onclick="cancelLocEdit()">
+  <div class="edit-card" onclick="event.stopPropagation()" style="overflow:visible">
+    <div style="font-size:16px;font-weight:700;color:#2A2118;margin-bottom:4px">📍 Edit location</div>
+    <div style="font-size:12px;color:#A09488;margin-bottom:14px">Search or enter a custom address</div>
+    <div style="position:relative;margin-bottom:16px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;z-index:1">📍</span>
+      <input type="text" id="edit-loc-inp" class="tinput" style="padding-left:32px"
+        placeholder="Search location…"
+        oninput="onLocEditInput(this.value)"
+        onkeydown="if(event.key==='Enter'){hideLocEditDropdown();saveLocEdit();}else if(event.key==='Escape')cancelLocEdit()">
+      <div id="loc-edit-dropdown" style="display:none;position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:200;background:#FDFBF7;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.14);overflow:hidden;border:.5px solid #EDE8E0"></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="cancelLocEdit()" style="flex:1;background:#F7F4EE;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:#7A6B5E">Cancel</button>
+      <button onclick="saveLocEdit()" style="flex:1;background:#8878C2;color:white;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
     </div>
   </div>
 </div>
@@ -828,11 +854,17 @@ function critBadge(task){
 /* ══════════════════════════
    DRAG & DROP
 ══════════════════════════ */
+/* ── Drag state ── */
+var _dd_ghost=null, _dd_holdTimer=null, _dd_dragging=false;
+var _dd_startX=0, _dd_startY=0, _dd_offX=0, _dd_offY=0;
+var _dd_sourceWrap=null;
+
 function setupDragDrop(){
   var container=document.getElementById('ov-tasks');
   if(!container||container._dd)return;
   container._dd=true;
 
+  /* ── MOUSE (desktop) ── */
   container.addEventListener('dragstart',function(e){
     var card=e.target.closest('[data-id]');
     if(!card)return;
@@ -840,48 +872,146 @@ function setupDragDrop(){
     e.dataTransfer.effectAllowed='move';
     setTimeout(function(){card.classList.add('ov-dragging');},0);
   });
-
   container.addEventListener('dragend',function(){
-    document.querySelectorAll('.ov-dragging,.drag-above,.drag-below').forEach(function(el){
-      el.classList.remove('ov-dragging','drag-above','drag-below');
-    });
+    _ddClearMarkers();
   });
-
   container.addEventListener('dragover',function(e){
     e.preventDefault();
     e.dataTransfer.dropEffect='move';
     var card=e.target.closest('[data-id]');
     if(!card)return;
-    document.querySelectorAll('.drag-above,.drag-below').forEach(function(el){
-      el.classList.remove('drag-above','drag-below');
-    });
+    _ddClearMarkers();
     var rect=card.getBoundingClientRect();
     card.classList.add(e.clientY<rect.top+rect.height/2?'drag-above':'drag-below');
   });
-
   container.addEventListener('dragleave',function(e){
-    if(!container.contains(e.relatedTarget)){
-      document.querySelectorAll('.drag-above,.drag-below').forEach(function(el){
-        el.classList.remove('drag-above','drag-below');
-      });
-    }
+    if(!container.contains(e.relatedTarget))_ddClearMarkers();
   });
-
   container.addEventListener('drop',function(e){
     e.preventDefault();
     var card=e.target.closest('[data-id]');
     if(!card||!dragTaskId)return;
-    var targetId=card.dataset.id;
-    if(dragTaskId===targetId){dragTaskId=null;return;}
     var rect=card.getBoundingClientRect();
-    var before=e.clientY<rect.top+card.offsetHeight/2;
-    var from=OV_TASKS.findIndex(function(t){return t.id===dragTaskId;});
-    var item=OV_TASKS.splice(from,1)[0];
-    var to=OV_TASKS.findIndex(function(t){return t.id===targetId;});
-    OV_TASKS.splice(before?to:to+1,0,item);
-    dragTaskId=null;
-    renderOvTasks();
+    _ddCommit(card.dataset.id, e.clientY<rect.top+card.offsetHeight/2);
   });
+
+  /* ── TOUCH (iOS / Android) ── */
+  container.addEventListener('touchstart',function(e){
+    var wrap=e.target.closest('[data-id]');
+    if(!wrap||wrap.dataset.draggable==='false')return;
+    var touch=e.touches[0];
+    _dd_startX=touch.clientX;
+    _dd_startY=touch.clientY;
+    _dd_sourceWrap=wrap;
+
+    /* Long-press threshold: 320ms hold before drag activates */
+    _dd_holdTimer=setTimeout(function(){
+      _ddTouchBegin(wrap, touch);
+    },320);
+  },{passive:true});
+
+  container.addEventListener('touchmove',function(e){
+    var touch=e.touches[0];
+    /* Cancel hold if finger moved significantly before threshold */
+    if(!_dd_dragging){
+      var dx=touch.clientX-_dd_startX, dy=touch.clientY-_dd_startY;
+      if(Math.sqrt(dx*dx+dy*dy)>8){clearTimeout(_dd_holdTimer);_dd_holdTimer=null;}
+      return;
+    }
+    e.preventDefault(); /* Lock scroll during active drag */
+    _ddTouchMove(touch);
+  },{passive:false});
+
+  container.addEventListener('touchend',function(e){
+    clearTimeout(_dd_holdTimer);_dd_holdTimer=null;
+    if(!_dd_dragging)return;
+    e.preventDefault();
+    _ddTouchEnd(e.changedTouches[0]);
+  });
+
+  container.addEventListener('touchcancel',function(){
+    clearTimeout(_dd_holdTimer);_dd_holdTimer=null;
+    _ddTouchCleanup();
+  });
+}
+
+function _ddTouchBegin(wrap, touch){
+  _dd_dragging=true;
+  dragTaskId=wrap.dataset.id;
+
+  /* Haptic pulse if available */
+  if(navigator.vibrate)navigator.vibrate(18);
+
+  /* Clone the card as a ghost */
+  var clone=wrap.cloneNode(true);
+  var rect=wrap.getBoundingClientRect();
+  _dd_offX=touch.clientX-rect.left;
+  _dd_offY=touch.clientY-rect.top;
+  clone.id='drag-ghost';
+  clone.style.width=rect.width+'px';
+  clone.style.left=(touch.clientX-_dd_offX)+'px';
+  clone.style.top=(touch.clientY-_dd_offY)+'px';
+  document.body.appendChild(clone);
+  _dd_ghost=clone;
+
+  wrap.classList.add('ov-dragging');
+  _dd_sourceWrap=wrap;
+}
+
+function _ddTouchMove(touch){
+  if(!_dd_ghost)return;
+  _dd_ghost.style.left=(touch.clientX-_dd_offX)+'px';
+  _dd_ghost.style.top=(touch.clientY-_dd_offY)+'px';
+
+  /* Find the element under the ghost (hide ghost first so it isn't found) */
+  _dd_ghost.style.display='none';
+  var el=document.elementFromPoint(touch.clientX, touch.clientY);
+  _dd_ghost.style.display='';
+
+  _ddClearMarkers();
+  var target=el&&el.closest('[data-id]');
+  if(target&&target.dataset.id!==dragTaskId){
+    var rect=target.getBoundingClientRect();
+    target.classList.add(touch.clientY<rect.top+rect.height/2?'drag-above':'drag-below');
+  }
+}
+
+function _ddTouchEnd(touch){
+  /* Find drop target under finger */
+  if(_dd_ghost)_dd_ghost.style.display='none';
+  var el=document.elementFromPoint(touch.clientX, touch.clientY);
+  if(_dd_ghost)_dd_ghost.style.display='';
+
+  var target=el&&el.closest('[data-id]');
+  if(target&&target.dataset.id!==dragTaskId){
+    var rect=target.getBoundingClientRect();
+    _ddCommit(target.dataset.id, touch.clientY<rect.top+target.offsetHeight/2);
+  }
+  _ddTouchCleanup();
+}
+
+function _ddTouchCleanup(){
+  _dd_dragging=false;
+  dragTaskId=null;
+  if(_dd_ghost){_dd_ghost.remove();_dd_ghost=null;}
+  if(_dd_sourceWrap){_dd_sourceWrap.classList.remove('ov-dragging');_dd_sourceWrap=null;}
+  _ddClearMarkers();
+}
+
+function _ddClearMarkers(){
+  document.querySelectorAll('.ov-dragging,.drag-above,.drag-below').forEach(function(el){
+    el.classList.remove('ov-dragging','drag-above','drag-below');
+  });
+}
+
+function _ddCommit(targetId, before){
+  if(!dragTaskId||dragTaskId===targetId){dragTaskId=null;return;}
+  var from=OV_TASKS.findIndex(function(t){return t.id===dragTaskId;});
+  var item=OV_TASKS.splice(from,1)[0];
+  var to=OV_TASKS.findIndex(function(t){return t.id===targetId;});
+  OV_TASKS.splice(before?to:to+1,0,item);
+  dragTaskId=null;
+  renderOvTasks();
 }
 
 /* ══════════════════════════
@@ -1078,6 +1208,69 @@ function saveTaskEdit(){
   if(n&&activeTaskId){var t=findTask(activeTaskId);if(t)t.name=n;}
   cancelTaskEdit();renderOvTasks();
 }
+
+/* ── Location edit ── */
+var _editLocPlaceData=null;
+function startLocEdit(){
+  var task=findTask(activeTaskId);if(!task)return;
+  closeActionSheet();
+  _editLocPlaceData=null;
+  var inp=document.getElementById('edit-loc-inp');
+  if(inp)inp.value=task.loc||'';
+  hideLocEditDropdown();
+  document.getElementById('loc-edit-ov').classList.add('open');
+  setTimeout(function(){if(inp){inp.focus();inp.select();}},280);
+}
+function cancelLocEdit(){
+  hideLocEditDropdown();
+  document.getElementById('loc-edit-ov').classList.remove('open');
+  _editLocPlaceData=null;
+}
+function onLocEditInput(val){
+  _editLocPlaceData=null;
+  if(!val||val.length<2){hideLocEditDropdown();return;}
+  var q=val.toLowerCase();
+  var matches=PLACE_DB.filter(function(p){
+    return p.name.toLowerCase().indexOf(q)>=0||p.cat.toLowerCase().indexOf(q)>=0||p.addr.toLowerCase().indexOf(q)>=0;
+  }).slice(0,5);
+  var dd=document.getElementById('loc-edit-dropdown');if(!dd)return;
+  if(!matches.length){hideLocEditDropdown();return;}
+  dd._matches=matches;
+  dd.innerHTML=matches.map(function(p,i){
+    return '<div class="loc-opt" onmousedown="event.preventDefault();selectEditLocPlace('+i+')">'
+      +'<div class="loc-opt-name"><span>📍</span>'+escH(p.name)+'<span class="loc-cat">'+escH(p.cat)+'</span></div>'
+      +'<div class="loc-opt-sub">'+escH(p.addr)+'</div></div>';
+  }).join('');
+  dd.style.display='block';
+}
+function selectEditLocPlace(idx){
+  var dd=document.getElementById('loc-edit-dropdown');
+  if(!dd||!dd._matches)return;
+  var p=dd._matches[idx];
+  var inp=document.getElementById('edit-loc-inp');
+  if(inp)inp.value=p.name;
+  _editLocPlaceData=p;
+  hideLocEditDropdown();
+}
+function hideLocEditDropdown(){
+  var dd=document.getElementById('loc-edit-dropdown');
+  if(dd)dd.style.display='none';
+}
+function saveLocEdit(){
+  var task=findTask(activeTaskId);if(!task)return;
+  var val=(document.getElementById('edit-loc-inp').value||'').trim();
+  if(!val){cancelLocEdit();return;}
+  task.loc=val;
+  task.hasLoc=true;
+  /* If a known place was selected, update its map coordinates too */
+  if(_editLocPlaceData){
+    task.mx=_editLocPlaceData.mx;
+    task.my=_editLocPlaceData.my;
+  }
+  cancelLocEdit();
+  renderOvTasks();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
 function doMoveToTomorrow(){
   if(!activeTaskId)return;
   var t=findTask(activeTaskId);if(t)t.tomorrow=!t.tomorrow;
@@ -1174,6 +1367,11 @@ function openDetail(listKey,title){
   document.getElementById('det-title').textContent=title;
   renderDetailList();
   document.getElementById('detail-screen').classList.add('open');
+}
+function handleDetailBack(){
+  var navOpen=document.getElementById('nav-screen').classList.contains('open');
+  if(navOpen) openNavListClose();
+  else closeDetail();
 }
 function closeDetail(){document.getElementById('detail-screen').classList.remove('open');detListKey=null;editingDetIdx=null;renderOvTasks();}
 function renderDetailList(){
@@ -1399,48 +1597,132 @@ function recBadge(freq){
 /* ══════════════════════════
    AI SUGGESTIONS
 ══════════════════════════ */
-async function fetchSuggestions(){
+/* ── Full suggestion bank, organised by context ── */
+var SUGG_BANK={
+  morning:[
+    {emoji:'☕',text:'Grab morning coffee',sublabel:'before the crowds hit'},
+    {emoji:'🥐',text:'Pick up breakfast',sublabel:'bakery opens early'},
+    {emoji:'💊',text:'Refill prescription',sublabel:'pharmacy opens at 8am'},
+    {emoji:'🌿',text:'Get vitamin D',sublabel:'low stock at home'},
+    {emoji:'🧴',text:'Restock face wash',sublabel:'pharmacy is nearby'},
+    {emoji:'🥛',text:'Grab oat milk',sublabel:'running low at home'},
+    {emoji:'📬',text:'Drop mail at post office',sublabel:'shorter queues in mornings'},
+    {emoji:'🍌',text:'Fresh fruit run',sublabel:'market just opened'}
+  ],
+  afternoon:[
+    {emoji:'🛒',text:'Top up groceries',sublabel:'quieter than evenings'},
+    {emoji:'📦',text:'Drop off return',sublabel:'UPS closes at 7pm'},
+    {emoji:'🧺',text:'Laundry detergent',sublabel:'almost out'},
+    {emoji:'🌱',text:'Grab potted herb',sublabel:'Trader Joe\'s has them'},
+    {emoji:'🧻',text:'Restock paper goods',sublabel:'running low'},
+    {emoji:'🍋',text:'Grab lemons & limes',sublabel:'for the week'},
+    {emoji:'🎁',text:'Pick up gift wrap',sublabel:'birthday coming up'},
+    {emoji:'📚',text:'Return library book',sublabel:'due this week'}
+  ],
+  evening:[
+    {emoji:'🍝',text:'Grab dinner ingredients',sublabel:'stores close at 9pm'},
+    {emoji:'🍷',text:'Pick up wine',sublabel:'Trader Joe\'s nearby'},
+    {emoji:'👔',text:'Collect dry cleaning',sublabel:'closes at 7pm · go now'},
+    {emoji:'🌙',text:'Restock night cream',sublabel:'pharmacy on your route'},
+    {emoji:'🧁',text:'Treat yourself',sublabel:'long day · you earned it'},
+    {emoji:'🥡',text:'Grab tomorrow\'s lunch',sublabel:'prep while out'},
+    {emoji:'🧼',text:'Dish soap restock',sublabel:'almost out'},
+    {emoji:'🕯️',text:'Pick up candles',sublabel:'spotted a good deal nearby'}
+  ],
+  lowEnergy:[
+    {emoji:'💊',text:'Quick prescription pickup',sublabel:'drive-through option · 5 min'},
+    {emoji:'🥤',text:'Grab a smoothie',sublabel:'energy boost nearby'},
+    {emoji:'🛍️',text:'Curbside grocery pickup',sublabel:'order ahead · no browsing'},
+    {emoji:'📬',text:'Drop mail only',sublabel:'30 seconds · mailbox nearby'},
+    {emoji:'🍵',text:'Pick up herbal tea',sublabel:'pharmacy · quick stop'}
+  ],
+  weekend:[
+    {emoji:'🌿',text:'Farmers market visit',sublabel:'open until noon'},
+    {emoji:'📚',text:'Browse the bookshop',sublabel:'new arrivals in'},
+    {emoji:'🌸',text:'Fresh flowers',sublabel:'treat for the week'},
+    {emoji:'🧇',text:'Brunch supplies run',sublabel:'Trader Joe\'s has granola'},
+    {emoji:'🎨',text:'Art supply restock',sublabel:'craft shop nearby'},
+    {emoji:'🧹',text:'Weekend cleaning supplies',sublabel:'running low on sponges'}
+  ],
+  always:[
+    {emoji:'🔋',text:'Phone charger cable',sublabel:'spare for the bag'},
+    {emoji:'💧',text:'Restock water filter',sublabel:'due this month'},
+    {emoji:'🩹',text:'Restock first aid kit',sublabel:'band-aids almost out'},
+    {emoji:'🖊️',text:'Grab a notepad',sublabel:'stationers on your route'},
+    {emoji:'🧃',text:'Restock snack drawer',sublabel:'almost empty'},
+    {emoji:'🪴',text:'Plant fertiliser',sublabel:'monthly feed due'}
+  ]
+};
+
+function fetchSuggestions(){
   var btn=document.getElementById('sugg-refresh-btn');
   var chips=document.getElementById('sugg-chips');
   var walker='<span class="walk-loader"><span class="walk-dot"></span><span class="walk-dot"></span><span class="walk-dot"></span><span class="walk-dot"></span><span class="walk-dot"></span></span>';
   if(btn){btn.innerHTML=walker+'Finding…';btn.disabled=true;}
   if(chips)chips.innerHTML='<div class="sugg-skeleton" style="height:34px;border-radius:20px"></div>';
 
-  var recurringList=OV_TASKS.filter(function(t){return t.recurring&&t.recurringFreq;}).map(function(t){
-    var r=REC_OPTIONS.find(function(o){return o.id===t.recurringFreq;});
-    return t.name+' ('+(r?r.label:'recurring')+')';
-  }).join(', ');
-  var existingTasks=OV_TASKS.map(function(t){return t.name;}).join(', ');
-  var hour=new Date().getHours();
-  var timeOfDay=hour<12?'morning':hour<17?'afternoon':'evening';
-  var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  var dayName=days[new Date().getDay()];
-
-  try{
-    var res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:300,
-        system:'You are PathFinder\'s errand suggestion AI for a busy NYC professional. Generate exactly 4 smart, context-aware errand suggestions. Return ONLY a raw JSON array with no markdown: [{"id":"s1","emoji":"💊","text":"Refill allergy meds","sublabel":"running low · pharmacy nearby"},{"id":"s2","emoji":"🧴","text":"Hand cream restock","sublabel":"pharmacy is on your route"},...]. Rules: text=2-5 words, sublabel=3-6 words (reason why NOW), vary categories (pharmacy/grocery/household/personal/admin/food), never duplicate existing tasks, factor in recurring patterns and time of day.',
-        messages:[{role:'user',content:'Time: '+timeOfDay+' '+dayName+'. Existing tasks today: '+existingTasks+'. Recurring patterns: '+(recurringList||'none')+'. Energy level: '+currentEnergy+'/10. NYC professional, post-work errands. '+(getRatingsContext()||'')}]
-      })
-    });
-    var data=await res.json();
-    var raw=data.content[0].text.trim().replace(/```json|```/g,'').trim();
-    suggestions=JSON.parse(raw);
+  /* Simulate a brief thinking delay so the walker animation is visible */
+  setTimeout(function(){
+    suggestions=_buildLocalSuggestions();
     dismissedSuggIds=[];
-  }catch(e){
-    suggestions=[
-      {id:'s1',emoji:'🧴',text:'Restock hand cream',sublabel:'pharmacy on your route'},
-      {id:'s2',emoji:'☕',text:'Grab coffee beans',sublabel:'running low at home'},
-      {id:'s3',emoji:'🌿',text:'Pick up vitamins',sublabel:'missed last week'},
-      {id:'s4',emoji:'🧺',text:'Laundry detergent',sublabel:'almost out'}
-    ];
+    if(btn){btn.innerHTML='↻ Refresh';btn.disabled=false;}
+    renderSuggestions();
+  }, 900);
+}
+
+function _buildLocalSuggestions(){
+  var hour=new Date().getHours();
+  var day=new Date().getDay(); /* 0=Sun, 6=Sat */
+  var timeOfDay=hour<12?'morning':hour<17?'afternoon':'evening';
+  var isWeekend=(day===0||day===6);
+  var existingNames=OV_TASKS.map(function(t){return t.name.toLowerCase();});
+
+  /* Build a weighted candidate pool */
+  var pool=[];
+  /* Time-of-day pool */
+  pool=pool.concat(SUGG_BANK[timeOfDay]||[]);
+  /* Weekend bonus */
+  if(isWeekend)pool=pool.concat(SUGG_BANK.weekend);
+  /* Low-energy additions */
+  if(currentEnergy<=4)pool=pool.concat(SUGG_BANK.lowEnergy);
+  /* Always-relevant */
+  pool=pool.concat(SUGG_BANK.always);
+
+  /* Joy rating boosts — surface categories the user has loved */
+  var lovedTypes=Object.keys(joyRatings).filter(function(t){return joyRatings[t].rating==='love';});
+  var joyBoosts={coffee:'☕',bakeries:'🥐',nature:'🌳',treats:'🍦',flowers:'🌸',books:'📚'};
+  lovedTypes.forEach(function(type){
+    if(joyBoosts[type]){
+      pool.unshift({
+        emoji:joyBoosts[type],
+        text:(type==='coffee'?'Great coffee nearby':type==='bakeries'?'Fresh bakery visit':type==='treats'?'Treat yourself today':type==='flowers'?'Fresh flowers this week':type==='books'?'Bookshop browse':'Nature break nearby'),
+        sublabel:'you\'ve loved this stop before'
+      });
+    }
+  });
+
+  /* Filter out anything that sounds like an existing task */
+  var filtered=pool.filter(function(s){
+    var txt=s.text.toLowerCase();
+    return !existingNames.some(function(n){
+      return n.indexOf(txt.split(' ')[0])>=0||txt.indexOf(n.split(' ')[0])>=0;
+    });
+  });
+
+  /* Shuffle and pick 4, deduplicate by emoji */
+  var shuffled=filtered.slice().sort(function(){return Math.random()-.5;});
+  var seen={}, picks=[];
+  for(var i=0;i<shuffled.length&&picks.length<4;i++){
+    if(!seen[shuffled[i].emoji]){
+      seen[shuffled[i].emoji]=true;
+      picks.push(Object.assign({id:'s'+(i+1)},shuffled[i]));
+    }
   }
-  if(btn){btn.innerHTML='↻ Refresh';btn.disabled=false;}
-  renderSuggestions();
+  /* Pad with always-bank if needed */
+  while(picks.length<4){
+    picks.push(Object.assign({id:'s'+picks.length},SUGG_BANK.always[picks.length%SUGG_BANK.always.length]));
+  }
+  return picks;
 }
 
 function renderSuggestions(){
@@ -2017,6 +2299,26 @@ function renderNavStep(){
       +'<div style="font-size:12px;color:#A09488;margin-top:1px">'+escH(item.addr)+'</div></div>'
       +'</div>';
     h2+='<div style="font-size:12px;color:#8878C2;font-weight:600;margin-bottom:14px;margin-top:6px">~'+item.mins+' min walk · '+item.dist+'</div>';
+
+    /* List button — shown when this stop's task has a list */
+    var taskId=STOP_TO_TASK[item.stopNum];
+    var task=taskId?findTask(taskId):null;
+    if(task&&task.listKey&&LISTS[task.listKey]){
+      var listName=task.listKey==='groceries'?'Grocery List':task.listKey==='pharmacy'?'Pharmacy List':'Shopping List';
+      var total=LISTS[task.listKey].length;
+      var done=LISTS[task.listKey].filter(function(i){return i.done;}).length;
+      h2+='<button onclick="openNavList(\''+task.listKey+'\',\''+listName+'\')" '
+        +'style="width:100%;display:flex;align-items:center;gap:10px;background:#F2EFF8;border:1.5px solid #D0CAEC;border-radius:14px;padding:11px 14px;cursor:pointer;font-family:inherit;margin-bottom:16px;transition:background .15s" '
+        +'onmouseover="this.style.background=\'#EDE9F6\'" onmouseout="this.style.background=\'#F2EFF8\'">'
+        +'<span style="font-size:18px">📋</span>'
+        +'<div style="flex:1;text-align:left">'
+        +'<div style="font-size:13px;font-weight:700;color:#2A2118">'+listName+'</div>'
+        +'<div style="font-size:11px;color:#8878C2;margin-top:1px">'+done+' of '+total+' checked off</div>'
+        +'</div>'
+        +'<span style="font-size:16px;color:#C0B8B0">›</span>'
+        +'</button>';
+    }
+
     h2+='<div style="font-size:11px;font-weight:700;color:#B0A898;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Walking directions</div>';
     item.steps.forEach(function(step,i){
       h2+='<div class="nav-step-row"><div class="nav-step-num">'+(i+1)+'</div><div style="flex:1;line-height:1.45">'+escH(step)+'</div></div>';
@@ -2041,6 +2343,27 @@ function renderNavStep(){
   }
 }
 
+function openNavList(listKey, title){
+  /* Remember we came from nav so back button returns there */
+  detListKey=listKey;
+  editingDetIdx=null;
+  document.getElementById('det-title').textContent=title;
+  /* Bump detail screen z-index above nav screen (z-index 75) */
+  var ds=document.getElementById('detail-screen');
+  ds.style.zIndex='80';
+  renderDetailList();
+  ds.classList.add('open');
+}
+
+function openNavListClose(){
+  var ds=document.getElementById('detail-screen');
+  ds.classList.remove('open');
+  ds.style.zIndex='';
+  detListKey=null;
+  editingDetIdx=null;
+  /* Refresh the nav card so the list count updates */
+  renderNavStep();
+}
 function drawNavMap(activeStopNum,stops,joyTarget){
   var svg=document.getElementById('nav-svg');if(!svg)return;
   var P='#8878C2',yx=42,yy=260;
