@@ -1351,10 +1351,19 @@ function updateScenicPreview(){
 ══════════════════════════ */
 function doSwap(){
   swapped=true;
+  /* Update the actual task data so Overview reflects the change */
+  var groceryTask=findTask('t2');
+  if(groceryTask){
+    groceryTask.loc='Whole Foods';
+    groceryTask.mx=108;
+    groceryTask.my=142;
+  }
   document.getElementById('pf-pivot').style.display='none';
   document.getElementById('pf-swapped').style.display='block';
-  document.getElementById('s2-loc').textContent='📍 Whole Foods';
-  var w=document.getElementById('s2-wait');w.className='ok';w.textContent='✓ No wait';
+  var s2loc=document.getElementById('s2-loc');
+  if(s2loc)s2loc.textContent='📍 Whole Foods';
+  var w=document.getElementById('s2-wait');if(w){w.className='ok';w.textContent='✓ No wait';}
+  renderOvTasks();
   renderRouteSteps();
   if(document.getElementById('pf-mp').style.display!=='none')drawMap();
 }
@@ -2121,7 +2130,11 @@ var NAV_LEGS=[
    mins:3,dist:'0.2 mi',mx:108,my:260},
   {stopNum:2,name:"Trader Joe's",   addr:'675 6th Ave',    icon:'🛒',
    steps:['Head north on 7th Ave for 4 blocks','Turn right onto W 18th St','Turn left onto 6th Ave','Trader Joe\'s is on your right'],
-   mins:7,dist:'0.4 mi',mx:180,my:142},
+   mins:7,dist:'0.4 mi',mx:180,my:142,
+   /* Swap data — used when buffer pivot is accepted */
+   altName:'Whole Foods Market',altAddr:'250 7th Ave',
+   altSteps:['Head west on the current street','Turn north on 7th Ave','Whole Foods is on your right · large green sign'],
+   altMins:5,altDist:'0.3 mi',altMx:108,altMy:142},
   {stopNum:3,name:'UPS Store',      addr:'77 W 20th St',   icon:'📦',
    steps:['Exit and head north on 6th Ave','Turn right onto W 20th St','UPS Store is mid-block on your right'],
    mins:4,dist:'0.3 mi',mx:248,my:183},
@@ -2129,7 +2142,7 @@ var NAV_LEGS=[
    steps:['Head south on 5th Ave for 4 blocks','Turn right onto W 16th St','Clean Express is on your left'],
    mins:5,dist:'0.4 mi',mx:248,my:260}
 ];
-/* Joy stop brief directions keyed by type */
+
 var JOY_NAV_STEPS={
   coffee:['Follow the detour off the main path','The café entrance is street-level'],
   bakeries:['Step in for a moment — the display is in the window','Counter service, quick stop'],
@@ -2145,7 +2158,6 @@ var navSequence=[], navStep=0, navJoyRatings={};
 function buildNavSequence(){
   var seq=[];
   for(var seg=0;seg<4;seg++){
-    /* Joy stops for this segment (if scenic mode) */
     if(currentVibe==='sc'){
       getActiveJoysForSeg(seg).forEach(function(sp){
         seq.push({
@@ -2158,9 +2170,19 @@ function buildNavSequence(){
         });
       });
     }
-    /* Main stop */
     var leg=NAV_LEGS[seg];
-    seq.push(Object.assign({},leg,{type:'stop',deleted:false,visited:false}));
+    /* Apply swap for stop 2 if buffer pivot was accepted */
+    var resolved=Object.assign({},leg);
+    if(swapped&&leg.stopNum===2&&leg.altName){
+      resolved.name=leg.altName;
+      resolved.addr=leg.altAddr;
+      resolved.steps=leg.altSteps;
+      resolved.mins=leg.altMins;
+      resolved.dist=leg.altDist;
+      resolved.mx=leg.altMx;
+      resolved.my=leg.altMy;
+    }
+    seq.push(Object.assign(resolved,{type:'stop',deleted:false,visited:false}));
   }
   return seq;
 }
