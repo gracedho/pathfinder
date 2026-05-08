@@ -1,0 +1,2216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PathFinder — Errands made simple</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;background:#161008;display:flex;align-items:flex-start;justify-content:center;padding:32px 16px 48px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.phone{width:390px;background:#F7F4EE;border-radius:44px;overflow:hidden;position:relative;box-shadow:0 48px 120px rgba(0,0,0,.6),0 0 0 1.5px rgba(255,255,255,.08)}
+.hdr{background:linear-gradient(150deg,#0C3B3E 0%,#145C54 55%,#1C7060 100%);padding:52px 24px 0;position:relative;overflow:hidden}
+.app-name{font-size:27px;font-weight:700;color:white;letter-spacing:-.2px;font-family:'Playfair Display',Georgia,serif;line-height:1.1}
+.app-sub{font-size:11px;color:rgba(255,255,255,.58);margin-top:5px;letter-spacing:.5px;font-weight:500;text-transform:uppercase}
+.tabs{display:flex;margin-top:18px}
+.tab{flex:1;padding:10px 4px 12px;background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;font-size:13px;font-weight:500;color:rgba(255,255,255,.55);font-family:inherit;transition:color .2s,border-color .2s}
+.tab.on{border-bottom-color:rgba(255,255,255,.8);color:white;font-weight:600}
+.panel{padding:22px 20px 40px;overflow-y:auto;max-height:740px;min-height:540px}
+.panel::-webkit-scrollbar{width:0}
+.card{background:#FDFBF7;border-radius:18px;padding:14px 16px;box-shadow:0 1px 6px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.04)}
+.surface{background:#F2EFE9;border-radius:18px;padding:18px}
+
+/* ── Drag & drop ── */
+.ov-wrap{margin-bottom:12px;border-radius:18px;transition:opacity .15s}
+.ov-wrap[draggable=true]{cursor:grab}
+.ov-wrap[draggable=true]:active{cursor:grabbing}
+.ov-wrap.ov-dragging{opacity:.3;transform:scale(.98)}
+.ov-wrap.drag-above{box-shadow:0 -2px 0 #B8AEDC,0 -2px 8px rgba(136,120,194,.2);border-radius:18px}
+.ov-wrap.drag-below{box-shadow:0 2px 0 #B8AEDC,0 2px 8px rgba(136,120,194,.2);border-radius:18px}
+
+/* ── Criticality badges ── */
+.crit-badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:20px;white-space:nowrap;flex-shrink:0;line-height:1.4}
+.crit-hi{background:#FEE8E8;color:#C02020}
+.crit-md{background:#FFF6E0;color:#A06010}
+.crit-lo{background:#F0FAF4;color:#207040}
+.crit-ing{background:#EDE9F6;color:#8878C2;animation:crit-pulse 1.1s infinite}
+@keyframes crit-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── Progress ── */
+.prog-card{background:#FDFBF7;border-radius:18px;padding:16px 18px;margin-bottom:16px;box-shadow:0 1px 6px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.03)}
+.prog-track{height:8px;background:#EDE9E2;border-radius:4px;overflow:hidden;margin-top:10px}
+.prog-fill{height:100%;border-radius:5px;width:0%;transition:width .45s cubic-bezier(.4,0,.2,1)}
+
+/* ── Add form ── */
+.add-form{background:#FDFBF7;border-radius:18px;padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 6px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.03);border:1px solid #EDE8E0;transition:border-color .2s}
+.add-form:focus-within{border-color:#D0CAEC}
+.add-row{display:flex;gap:8px;align-items:center}
+.loc-wrap{position:relative;flex:1;overflow:visible}
+.loc-wrap .tinput{padding-left:28px}
+.loc-pin{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:12px;pointer-events:none}
+
+/* ── Location autocomplete dropdown ── */
+#loc-dropdown{display:none;position:absolute;top:calc(100% + 5px);left:-14px;right:-60px;z-index:200;background:#FDFBF7;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.06);overflow:hidden;border:.5px solid #EDE8E0}
+.loc-opt{padding:11px 16px;cursor:pointer;border-bottom:.5px solid #F2EFE9;transition:background .1s}
+.loc-opt:last-child{border-bottom:none}
+.loc-opt:hover{background:#F2EFF8}
+.loc-opt-name{font-size:13px;font-weight:600;color:#2A2118;display:flex;align-items:center;gap:7px}
+.loc-opt-sub{font-size:11px;color:#B0A898;margin-top:2px}
+.loc-cat{font-size:10px;font-weight:700;background:#EDE9F6;color:#8878C2;padding:1px 7px;border-radius:8px;flex-shrink:0}
+
+/* ── Leave-by indicator ── */
+.leaveby-card{border-radius:16px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:14px}
+.leaveby-time{font-size:22px;font-weight:800;font-family:'Playfair Display',Georgia,serif;white-space:nowrap;line-height:1.15}
+
+/* ── Detour ratings ── */
+.rate-stop-row{padding:10px 0;border-bottom:.5px solid rgba(255,255,255,.12)}
+.rate-stop-row:last-child{border-bottom:none}
+.rate-btn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:white;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;flex-shrink:0}
+.rate-btn:hover{background:rgba(255,255,255,.28)}
+.rate-btn.love.sel{background:#FFD166;border-color:#FFD166;color:#5A3A00}
+.rate-btn.good.sel{background:rgba(255,255,255,.9);border-color:white;color:#3E3070}
+.rate-btn.skip.sel{background:rgba(255,100,80,.5);border-color:rgba(255,100,80,.7);color:white}
+/* Joy chip rating badge */
+.joy-chip-rated{font-size:10px;margin-left:4px}
+.nav-screen{position:absolute;inset:0;z-index:75;background:#F7F4EE;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .38s cubic-bezier(.32,.72,0,1)}
+.nav-screen.open{transform:translateX(0)}
+.nav-hdr{background:linear-gradient(150deg,#0C3B3E,#1C7060);padding:52px 20px 16px;position:relative;transition:background .4s}
+.nav-hdr.joy-hdr{background:linear-gradient(150deg,#3E2870,#7060B0)}
+.nav-prog-track{height:4px;background:rgba(255,255,255,.2);border-radius:2px;margin-top:12px}
+.nav-prog-fill{height:100%;border-radius:2px;background:white;transition:width .4s ease}
+.nav-map{flex-shrink:0;background:#EEEBE4;display:block}
+.nav-dir-card{flex:1;overflow-y:auto;padding:18px 20px}
+.nav-dir-card::-webkit-scrollbar{width:0}
+.nav-step-row{display:flex;align-items:flex-start;gap:10px;padding:7px 0;font-size:13px;color:#2A2118}
+.nav-step-row+.nav-step-row{border-top:.5px solid #EDE8E0}
+.nav-step-num{width:22px;height:22px;border-radius:50%;background:#EDE9F6;color:#8878C2;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.nav-step-num.joy{background:#FFF0D0;color:#B07820}
+.nav-joy-badge{display:inline-flex;align-items:center;gap:4px;background:#FFF0D0;color:#B07820;font-size:10px;font-weight:700;padding:2px 10px;border-radius:10px;letter-spacing:.3px;margin-bottom:12px}
+.nav-arrive-btn{width:100%;background:#8878C2;color:white;border:none;border-radius:22px;padding:17px 20px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 20px rgba(136,120,194,.35);transition:background .15s;display:flex;align-items:center;justify-content:center;gap:8px}
+.nav-arrive-btn:hover{background:#7060B0}
+.nav-visit-btn{flex:1;background:#8878C2;color:white;border:none;border-radius:22px;padding:15px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s}
+.nav-visit-btn:hover{background:#7060B0}
+.nav-skip-btn{flex:1;background:rgba(136,120,194,.12);color:#8878C2;border:1.5px solid rgba(136,120,194,.28);border-radius:22px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
+.nav-skip-btn:hover{background:rgba(136,120,194,.22)}
+.nav-delete-link{background:none;border:none;cursor:pointer;font-size:12px;color:#C0B8B0;font-family:inherit;padding:10px 0 0;width:100%;text-align:center;transition:color .15s;display:block}
+.nav-delete-link:hover{color:#E8705A}
+.nav-rate-row{display:flex;gap:8px;margin-top:0}
+.nav-rate-btn{flex:1;border-radius:22px;padding:13px 6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:1.5px solid;transition:all .15s;text-align:center}
+.nav-rate-btn.love{background:rgba(255,209,102,.15);border-color:rgba(255,209,102,.4);color:#7A5A10}
+.nav-rate-btn.love:hover,.nav-rate-btn.love.sel{background:#FFD166;border-color:#FFD166;color:#3A2800}
+.nav-rate-btn.good{background:rgba(136,120,194,.1);border-color:rgba(136,120,194,.3);color:#8878C2}
+.nav-rate-btn.good:hover,.nav-rate-btn.good.sel{background:#8878C2;border-color:#8878C2;color:white}
+.nav-rate-btn.skip{background:rgba(232,112,90,.08);border-color:rgba(232,112,90,.22);color:#C05040}
+.nav-rate-btn.skip:hover,.nav-rate-btn.skip.sel{background:#E8705A;border-color:#E8705A;color:white}
+@keyframes nav-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.18)}}
+.start-route-wrap{padding:14px 20px 32px;background:linear-gradient(to bottom,rgba(247,244,238,0) 0%,#F7F4EE 30%)}
+.start-route-btn{width:100%;background:#8878C2;color:white;border:none;border-radius:22px;padding:17px 20px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 22px rgba(136,120,194,.35);transition:background .15s,transform .1s}
+.start-route-btn:hover{background:#7060B0}
+.start-route-btn:active{transform:scale(.98)}
+.maps-link{background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:#A09488;font-family:inherit;padding:6px 10px;border-radius:10px;transition:color .12s}
+.maps-link:hover{color:#8878C2}
+.add-plus{background:#8878C2;color:white;border:none;border-radius:50%;width:38px;height:38px;font-size:22px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s,transform .1s;box-shadow:0 2px 8px rgba(136,120,194,.35)}
+.add-plus:hover{background:#7060B0}
+.add-plus:active{transform:scale(.9)}
+
+/* ── Task cards ── */
+.ticon{width:36px;height:36px;border-radius:12px;background:#EDE9F6;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:19px;line-height:1}
+.ov-cb{width:21px;height:21px;border-radius:50%;border:1.5px solid #C0B8B0;background:#FDFBF7;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s;font-size:11px;font-weight:800;color:white;user-select:none}
+.ov-cb.done{background:#8878C2;border-color:#8878C2}
+.dots-btn{background:none;border:none;cursor:pointer;padding:4px 5px;color:#C0B8B0;border-radius:8px;flex-shrink:0;font-size:18px;line-height:1;transition:background .12s,color .12s;margin-left:2px}
+.dots-btn:hover{background:#EDE9F6;color:#8878C2}
+.list-badge{font-size:10px;font-weight:600;color:#AA9CCC;background:#F2EFF8;padding:3px 9px;border-radius:20px;white-space:nowrap;flex-shrink:0}
+.travel{padding:5px 0 5px 16px;font-size:11px;color:#B8AFA6;display:flex;align-items:center;gap:5px;user-select:none}
+.tmrw-divider{display:flex;align-items:center;gap:10px;margin:18px 0 14px;font-size:11px;font-weight:600;color:#C0B8B0;letter-spacing:.3px}
+.tmrw-divider::before,.tmrw-divider::after{content:'';flex:1;height:.5px;background:#E8E2DA}
+
+/* ── Route / vibe ── */
+.vbtn{flex:1;padding:10px 4px;border-radius:22px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .22s}
+.vbtn.on{background:#8878C2;color:white;border:none;box-shadow:0 2px 10px rgba(136,120,194,.3)}
+.vbtn.off{background:#FDFBF7;color:#7A6B5E;border:.5px solid #E0D8CE}
+.joy-panel{max-height:0;overflow:hidden;transition:max-height .35s ease}
+.joy-panel.open{max-height:440px}
+.joy-chip{padding:7px 14px;border-radius:22px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid #E0D8CE;background:#FDFBF7;color:#7A6B5E;font-family:inherit;transition:all .15s}
+.joy-chip.on{background:#EDE9F6;border-color:#8878C2;color:#8878C2}
+.joy-grid{display:flex;flex-wrap:wrap;gap:8px}
+.ai-badge{display:flex;align-items:flex-start;gap:10px;background:#F2EFF8;border-radius:14px;padding:12px 14px;margin-top:12px}
+.scenic-preview{background:#EEF6F5;border:1px solid #C8E0D8;border-radius:18px;padding:14px 16px;margin-bottom:16px}
+.joy-stop-row{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;color:#7060B0;border-bottom:.5px solid #F2EFF8}
+.joy-stop-row:last-child{border-bottom:none}
+
+/* ── Joy stop in route list ── */
+.joy-route-row{display:flex;align-items:flex-start;gap:12px;margin-bottom:0}
+.joy-step-icon{width:30px;height:30px;border-radius:50%;background:#FEF0D0;border:2px solid #E8B84B;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;line-height:1}
+.joy-route-card{flex:1;background:#FFFBF0;border:1px solid #F0D98A;border-radius:12px;padding:10px 13px}
+.joy-route-name{font-size:13px;font-weight:700;color:#7A5010}
+.joy-route-meta{font-size:11px;color:#A07030;margin-top:2px}
+.joy-min-badge{font-size:10px;font-weight:700;color:#8A6010;background:#FEE8A0;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;align-self:center}
+
+/* ── Alert ── */
+.alert-box{background:#FEF0E7;border:1px solid #E8A070;border-radius:14px;padding:14px 16px;margin-bottom:16px}
+.swap-btn{width:100%;background:#E8905A;color:white;border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px}
+
+/* ── Map ── */
+.map-statsbar{background:linear-gradient(155deg,#2A9090,#4AB5B0);padding:10px 20px;display:flex;gap:24px;justify-content:center}
+.map-stat{display:flex;align-items:center;gap:6px;font-size:12px;color:white;font-weight:600}
+.map-legend{padding:9px 16px;background:white;border-top:1px solid #E0D8CE;display:flex;gap:12px;font-size:10px;color:#7A6B5E;align-items:center;flex-wrap:wrap}
+.leg-item{display:flex;align-items:center;gap:5px}
+.leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.stop-detail-card{margin:14px 20px 0;background:white;border-radius:14px;padding:14px 16px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+.status-btn{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;border:1.5px solid}
+.status-btn.todo{background:white;color:#8878C2;border-color:#8878C2}
+.status-btn.done{background:#EAF7F1;color:#4DB688;border-color:#4DB688}
+.wdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.wdot.quiet{background:#4DB688}.wdot.moderate{background:#E8A070}.wdot.busy{background:#E8705A}
+
+/* ── Detail screen ── */
+.detail-screen{position:absolute;inset:0;z-index:60;background:#F7F4EE;transform:translateX(100%);transition:transform .32s cubic-bezier(.32,.72,0,1)}
+.detail-screen.open{transform:translateX(0)}
+.det-hdr{background:linear-gradient(155deg,#2A9090,#4AB5B0);padding:48px 20px 16px}
+.back-btn{background:rgba(255,255,255,.22);border:none;border-radius:10px;padding:7px 13px;color:white;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:6px;flex-shrink:0}
+.back-btn:hover{background:rgba(255,255,255,.32)}
+.det-prog-bar-bg{height:4px;background:rgba(255,255,255,.25);border-radius:2px;margin-top:8px}
+.det-prog-bar{height:100%;background:white;border-radius:2px;width:0%;transition:width .35s ease}
+.det-body{padding:16px 20px 36px;overflow-y:auto;max-height:580px}
+.det-body::-webkit-scrollbar{width:0}
+.detail-item{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:.5px solid #EDE9F4}
+.detail-item:last-child{border-bottom:none}
+.det-text{flex:1;font-size:14px;font-weight:500;color:#2A2118;line-height:1.4}
+.det-text.struck{text-decoration:line-through;color:#C0B8B0}
+.det-edit-inp{flex:1;border:none;border-bottom:2px solid #8878C2;background:transparent;outline:none;font-size:14px;font-weight:500;color:#2A2118;font-family:inherit;padding:2px 0;min-width:0}
+.ic-btn{background:none;border:none;cursor:pointer;padding:5px 6px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;border-radius:6px;transition:background .12s,color .12s;line-height:1}
+.ic-btn.edit{color:#C0B8B0}.ic-btn.edit:hover{color:#8878C2;background:#EDE9F6}
+.ic-btn.del{color:#C0B8B0}.ic-btn.del:hover{color:#E8705A;background:#FAEAE7}
+.ic-btn.save{color:white;background:#8878C2;border-radius:8px;padding:5px 9px;font-size:13px;font-weight:700}
+.cb{width:20px;height:20px;border-radius:6px;border:2px solid #C0B8B0;background:white;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s;font-size:11px;font-weight:800;color:white}
+.cb.done{background:#8878C2;border-color:#8878C2}
+.det-empty{padding:28px 0;text-align:center;font-size:13px;color:#A09488}
+
+/* ── Action / edit overlays ── */
+.action-ov{position:absolute;inset:0;background:rgba(12,28,26,.52);z-index:70;display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity .22s}
+.action-ov.open{opacity:1;pointer-events:all}
+.action-sheet{width:100%;background:#F7F4EE;border-radius:20px 20px 0 0;padding:12px 20px 28px;transform:translateY(100%);transition:transform .28s cubic-bezier(.32,.72,0,1)}
+.action-ov.open .action-sheet{transform:translateY(0)}
+.action-btn{width:100%;background:none;border:none;cursor:pointer;padding:14px 16px;font-size:14px;font-weight:500;color:#2A2118;font-family:inherit;display:flex;align-items:center;gap:14px;text-align:left;transition:background .12s}
+.action-btn:hover{background:#F0F7F6}
+.action-btn.danger{color:#E8705A}
+.action-divider{height:.5px;background:#EDE9F6;margin:0 16px}
+.action-icon{width:28px;height:28px;border-radius:8px;background:#EDE9F6;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.action-icon.red{background:#FEF0EC}
+.edit-ov{position:absolute;inset:0;background:rgba(12,28,26,.62);z-index:75;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.edit-ov.open{opacity:1;pointer-events:all}
+.edit-card{background:white;border-radius:18px;padding:20px 20px 16px;width:calc(100% - 40px)}
+
+/* ── Inputs ── */
+.ti-row{display:flex;gap:8px;margin-top:14px}
+.tinput{flex:1;padding:10px 16px;border:1px solid #E8E2DA;border-radius:22px;font-size:13px;font-family:inherit;background:#FDFBF7;outline:none;transition:border-color .15s;width:100%}
+.tinput:focus{border-color:#B8AEDC}
+.tadd-btn{background:#8878C2;color:white;border:none;border-radius:22px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+
+/* ── Utils ── */
+.row{display:flex;align-items:center;gap:10px}
+.mb14{margin-bottom:14px}
+.muted{color:#A09488;font-size:11px}
+.ok{color:#4DB688;font-weight:700;font-size:11px}
+.warn{color:#E8A070;font-weight:700;font-size:11px}
+.stepnum{width:30px;height:30px;border-radius:50%;background:#8878C2;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:white;font-size:13px;font-weight:800}
+input[type=range]{accent-color:#8878C2}
+
+/* ── AI Suggestions ── */
+.sugg-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sugg-label{font-size:12px;font-weight:700;color:#8878C2;display:flex;align-items:center;gap:5px}
+.sugg-refresh{background:none;border:none;cursor:pointer;font-size:11px;font-weight:700;color:#AA9CCC;font-family:inherit;padding:3px 8px;border-radius:8px;transition:background .12s;display:inline-flex;align-items:center;gap:5px}
+.sugg-refresh:hover{background:#EDE9F6}
+.sugg-refresh:disabled{cursor:default;opacity:.8}
+/* Footprint walker loader */
+.walk-loader{display:inline-flex;align-items:center;gap:3px}
+.walk-dot{width:5px;height:8px;border-radius:40% 40% 30% 30%;background:#AA9CCC;opacity:.12;animation:walk-stamp 1.6s ease-in-out infinite;flex-shrink:0}
+.walk-dot:nth-child(odd) {transform:rotate(-16deg) translateY(-2px)}
+.walk-dot:nth-child(even){transform:rotate(16deg) translateY(2px)}
+.walk-dot:nth-child(1){animation-delay:.00s}
+.walk-dot:nth-child(2){animation-delay:.32s}
+.walk-dot:nth-child(3){animation-delay:.64s}
+.walk-dot:nth-child(4){animation-delay:.96s}
+.walk-dot:nth-child(5){animation-delay:1.28s}
+@keyframes walk-stamp{
+  0%,100%{opacity:.12}
+  10%{opacity:1;filter:brightness(1.2)}
+  40%{opacity:.85}
+  75%{opacity:.12}
+}
+.sugg-chip{display:flex;align-items:center;gap:10px;background:white;border:1px solid #F2EFF8;border-radius:12px;padding:10px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.04);transition:border-color .15s,box-shadow .15s;margin-bottom:8px}
+.sugg-chip:hover{border-color:#D0CAEC;box-shadow:0 3px 14px rgba(136,120,194,.13)}
+.sugg-icon{font-size:22px;flex-shrink:0;line-height:1}
+.sugg-dismiss{background:none;border:none;cursor:pointer;color:#C0B8B0;font-size:18px;line-height:1;padding:2px 0 2px 8px;flex-shrink:0;transition:color .12s}
+.sugg-dismiss:hover{color:#8878C2}
+.sugg-skeleton{height:34px;background:linear-gradient(90deg,#EDE9F6 25%,#DFF0EE 50%,#EDE9F6 75%);background-size:200% 100%;border-radius:20px;animation:skel-shimmer 1.5s ease-in-out infinite}
+@keyframes skel-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ── Recurring badge ── */
+.rec-badge{font-size:10px;font-weight:700;color:#7060B0;background:#F2EFF8;padding:2px 7px;border-radius:10px;flex-shrink:0;white-space:nowrap}
+
+/* ── Recurring picker ── */
+.rec-opt{display:flex;align-items:center;gap:12px;padding:11px 12px;cursor:pointer;border-radius:10px;transition:background .12s;font-size:14px;font-weight:500;color:#2A2118}
+.rec-opt:hover{background:#EDE9F6}
+.rec-opt.sel{background:#F2EFF8;color:#8878C2;font-weight:700}
+.rec-dot{width:18px;height:18px;border-radius:50%;border:2px solid #C0B8B0;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:white;transition:all .15s}
+.rec-opt.sel .rec-dot{background:#8878C2;border-color:#8878C2}
+
+/* ── Completion screen ── */
+.completion-screen{position:absolute;inset:0;z-index:90;background:linear-gradient(160deg,#3E3070 0%,#7B6DB8 50%,#C4B8E8 100%);display:flex;flex-direction:column;align-items:center;padding:56px 24px 32px;transform:translateY(100%);transition:transform .48s cubic-bezier(.32,.72,0,1);overflow-y:auto}
+.completion-screen.open{transform:translateY(0)}
+.confetti-wrap{position:absolute;top:0;left:0;right:0;height:180px;overflow:hidden;pointer-events:none}
+.cc{position:absolute;animation:cc-drift linear forwards}
+@keyframes cc-drift{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(210px) rotate(600deg);opacity:0}}
+.comp-ring{width:78px;height:78px;border-radius:50%;background:rgba(255,255,255,.18);border:3px solid rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:16px;animation:comp-pop .6s cubic-bezier(.34,1.56,.64,1) .1s both}
+@keyframes comp-pop{0%{transform:scale(0);opacity:0}100%{transform:scale(1);opacity:1}}
+.comp-title{font-size:28px;font-weight:800;color:white;letter-spacing:-.5px;margin-bottom:4px;text-align:center}
+.comp-sub{font-size:14px;color:rgba(255,255,255,.78);margin-bottom:26px;text-align:center;line-height:1.5}
+.comp-stats{display:flex;gap:10px;width:100%;margin-bottom:22px}
+.comp-stat{flex:1;background:rgba(255,255,255,.15);border-radius:14px;padding:14px 6px;text-align:center}
+.comp-num{font-size:26px;font-weight:800;color:white;line-height:1}
+.comp-lbl{font-size:11px;color:rgba(255,255,255,.72);margin-top:4px;font-weight:600}
+.comp-card{width:100%;background:rgba(255,255,255,.12);border-radius:14px;padding:14px 16px;margin-bottom:22px}
+.comp-task-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:.5px solid rgba(255,255,255,.14);font-size:13px;color:rgba(255,255,255,.9)}
+.comp-task-row:last-child{border-bottom:none}
+.comp-btn-pri{width:100%;background:rgba(255,255,255,.92);color:#7060B0;border:none;border-radius:14px;padding:15px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;transition:background .15s}
+.comp-btn-pri:hover{background:white}
+.comp-btn-sec{width:100%;background:rgba(255,255,255,.14);color:white;border:1.5px solid rgba(255,255,255,.35);border-radius:14px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s}
+.comp-btn-sec:hover{background:rgba(255,255,255,.22)}
+</style>
+</head>
+<body>
+<div class="phone">
+
+<!-- ═══ HEADER ═══ -->
+<div class="hdr">
+
+  <!-- Footstep trail decoration -->
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 160" width="390" height="160"
+    style="position:absolute;top:0;left:0;pointer-events:none" aria-hidden="true">
+
+    <!-- Dashed path winding across the header -->
+    <path d="M -5,154 C 70,138 165,112 260,90 S 355,66 402,55"
+      fill="none" stroke="white" stroke-width="1.1"
+      stroke-dasharray="4.5,4" stroke-linecap="round" opacity="0.2"/>
+
+    <!-- Footprints — alternating L (rotate -20) / R (rotate +20), growing slightly more opaque toward the right -->
+
+    <!-- L1 --> <ellipse cx="18"  cy="146" rx="3.2" ry="5.2" fill="white" opacity="0.13" transform="rotate(-20,18,146)"/>
+    <!-- R1 --> <ellipse cx="38"  cy="150" rx="3.2" ry="5.2" fill="white" opacity="0.15" transform="rotate(20,38,150)"/>
+
+    <!-- L2 --> <ellipse cx="68"  cy="138" rx="3.2" ry="5.2" fill="white" opacity="0.16" transform="rotate(-20,68,138)"/>
+    <!-- R2 --> <ellipse cx="90"  cy="142" rx="3.2" ry="5.2" fill="white" opacity="0.18" transform="rotate(20,90,142)"/>
+
+    <!-- L3 --> <ellipse cx="122" cy="128" rx="3.2" ry="5.2" fill="white" opacity="0.19" transform="rotate(-20,122,128)"/>
+    <!-- R3 --> <ellipse cx="144" cy="132" rx="3.2" ry="5.2" fill="white" opacity="0.21" transform="rotate(20,144,132)"/>
+
+    <!-- L4 --> <ellipse cx="178" cy="116" rx="3.2" ry="5.2" fill="white" opacity="0.22" transform="rotate(-20,178,116)"/>
+    <!-- R4 --> <ellipse cx="200" cy="120" rx="3.2" ry="5.2" fill="white" opacity="0.24" transform="rotate(20,200,120)"/>
+
+    <!-- L5 --> <ellipse cx="234" cy="103" rx="3.2" ry="5.2" fill="white" opacity="0.25" transform="rotate(-20,234,103)"/>
+    <!-- R5 --> <ellipse cx="256" cy="107" rx="3.2" ry="5.2" fill="white" opacity="0.27" transform="rotate(20,256,107)"/>
+
+    <!-- L6 --> <ellipse cx="290" cy="89"  rx="3.2" ry="5.2" fill="white" opacity="0.28" transform="rotate(-20,290,89)"/>
+    <!-- R6 --> <ellipse cx="312" cy="93"  rx="3.2" ry="5.2" fill="white" opacity="0.30" transform="rotate(20,312,93)"/>
+
+    <!-- L7 --> <ellipse cx="344" cy="75"  rx="3.2" ry="5.2" fill="white" opacity="0.31" transform="rotate(-20,344,75)"/>
+    <!-- R7 --> <ellipse cx="366" cy="79"  rx="3.2" ry="5.2" fill="white" opacity="0.33" transform="rotate(20,366,79)"/>
+
+    <!-- Destination marker: glowing pin at path end -->
+    <circle cx="390" cy="57" r="7" fill="rgba(255,209,102,0.18)"/>
+    <circle cx="390" cy="57" r="4" fill="rgba(255,209,102,0.45)"/>
+    <circle cx="390" cy="57" r="2" fill="rgba(255,255,255,0.85)"/>
+    <!-- Pulse ring -->
+    <circle cx="390" cy="57" r="7" fill="none" stroke="rgba(255,209,102,0.35)" stroke-width="1.5">
+      <animate attributeName="r"       values="5;13;5"     dur="2.8s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.4;0;0.4"  dur="2.8s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- Subtle hill silhouettes at bottom-right for depth (moodboard landscape feel) -->
+    <ellipse cx="310" cy="168" rx="90"  ry="28" fill="rgba(255,255,255,0.04)"/>
+    <ellipse cx="370" cy="172" rx="65"  ry="22" fill="rgba(255,255,255,0.03)"/>
+  </svg>
+
+  <div class="app-name">PathFinder</div>
+  <div class="app-sub">PLAN LESS · LIVE MORE</div>
+  <div class="tabs" role="tablist">
+    <button role="tab" class="tab on" id="tb-ov" onclick="goTab('ov')">Overview</button>
+    <button role="tab" class="tab"    id="tb-rt" onclick="goTab('rt')">Route</button>
+    <button role="tab" class="tab"    id="tb-mp" onclick="goTab('mp')">Map</button>
+  </div>
+</div>
+
+<!-- ═══ OVERVIEW ═══ -->
+<div class="panel" id="pf-ov">
+
+  <!-- Energy slider -->
+  <div class="surface mb14">
+    <div class="row" style="justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:14px;color:#7A6B5E;font-weight:600">🔋 How are you feeling?</div>
+      <span id="ev-display" style="font-size:22px;font-weight:800;color:#8878C2">6/10</span>
+    </div>
+    <div style="position:relative;height:6px;border-radius:3px;background:#E0D8CE;margin-bottom:12px">
+      <div id="ev-fill" style="position:absolute;left:0;top:0;height:100%;width:55.6%;border-radius:3px;background:linear-gradient(90deg,#E86A4A,#FFA882,#FFD166);transition:width .15s;pointer-events:none"></div>
+      <input type="range" min="1" max="10" value="6" oninput="onEnergy(this.value)" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;margin:0">
+      <div id="ev-thumb" style="position:absolute;top:50%;left:55.6%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,.2);border:2px solid #8878C2;pointer-events:none;transition:left .15s"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between" class="muted"><span>Drained</span><span>Energized</span></div>
+  </div>
+
+  <!-- Low-energy nudge -->
+  <div id="low-nudge" style="display:none;background:#FEF0E7;border-left:3px solid #E8A070;border-radius:0 10px 10px 0;padding:11px 13px;margin-bottom:14px;font-size:13px;color:#7A4A2A"></div>
+
+  <!-- Progress -->
+  <div class="prog-card">
+    <div class="row" style="justify-content:space-between">
+      <div style="font-size:14px;font-weight:700;color:#2A2118">Today's Progress</div>
+      <span id="prog-count" style="font-size:13px;font-weight:700;color:#8878C2">0 of 4 done</span>
+    </div>
+    <div class="prog-track"><div id="prog-fill" class="prog-fill" style="background:linear-gradient(90deg,#C4AEDC,#FFC9A3)"></div></div>
+    <div id="prog-done-msg" style="display:none;margin-top:8px;font-size:12px;color:#4DB688;font-weight:700;text-align:center">🎉 All tasks complete for today!</div>
+  </div>
+
+  <!-- Section header -->
+  <div style="font-size:18px;font-weight:700;color:#2A2118;margin:18px 0 12px;font-family:'Playfair Display',Georgia,serif;letter-spacing:-.2px">Today's errands</div>
+
+  <!-- ── ADD TASK FORM (above the list) ── -->
+  <div class="add-form" id="add-task-form">
+    <input type="text" id="add-name" class="tinput" placeholder="Add a task…"
+      style="margin-bottom:8px;font-size:13px;padding:8px 12px"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('add-loc').focus();}">
+    <div class="add-row">
+      <div class="loc-wrap">
+        <span class="loc-pin">📍</span>
+        <input type="text" id="add-loc" class="tinput" placeholder="Location (optional · shows on map)"
+          style="font-size:12px;padding:7px 12px 7px 26px"
+          oninput="onLocInput(this.value)"
+          onkeydown="if(event.key==='Enter'){hideLocDropdown();addUserTask();}else if(event.key==='Escape')hideLocDropdown()"
+          onfocus="if(this.value.length>=2)onLocInput(this.value)">
+        <div id="loc-dropdown"></div>
+      </div>
+      <button class="add-plus" onclick="addUserTask()" aria-label="Add task">+</button>
+    </div>
+  </div>
+
+  <!-- AI Suggestions -->
+  <div id="suggestions-section" style="margin-bottom:14px">
+    <div class="sugg-hdr">
+      <div class="sugg-label">🧠 <span>Suggested for you</span></div>
+      <button id="sugg-refresh-btn" class="sugg-refresh" onclick="fetchSuggestions()">↻ Refresh</button>
+    </div>
+    <div id="sugg-chips">
+      <div class="sugg-skeleton" style="height:34px;border-radius:20px"></div>
+    </div>
+  </div>
+
+  <!-- Dynamic task list -->
+  <div id="ov-tasks"></div>
+</div>
+
+<!-- ═══ ROUTE ═══ -->
+<div class="panel" id="pf-rt" style="display:none">
+
+  <!-- Leave-by indicator -->
+  <div id="leaveby-card" class="leaveby-card" style="display:none"></div>
+
+  <div class="surface mb14">
+    <div class="muted" style="font-size:12px;font-weight:700;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">Route Vibe</div>
+    <div style="display:flex;gap:6px">
+      <button class="vbtn on"  id="vb-e"  onclick="setVibe('e')">⚡ Efficient</button>
+      <button class="vbtn off" id="vb-lf" onclick="setVibe('lf')">🌿 Low-Friction</button>
+      <button class="vbtn off" id="vb-sc" onclick="setVibe('sc')">✨ Scenic</button>
+    </div>
+    <div id="vibe-desc" class="muted" style="margin-top:10px">Fastest path, high-traffic corridors</div>
+    <div id="joy-panel" class="joy-panel">
+      <div style="margin-top:14px;padding-top:14px;border-top:.5px solid #F2EFF8">
+        <div style="font-size:13px;font-weight:700;color:#2A2118;margin-bottom:3px">What small joys would you like?</div>
+        <div class="muted mb10">Choose delights to thread into your route</div>
+        <div id="joy-chips" class="joy-grid mb10"></div>
+        <input type="text" class="tinput" id="custom-joy" placeholder="Other interests (e.g. vintage shops, galleries…)" style="margin-bottom:12px" oninput="updateScenicPreview()">
+        <div class="ai-badge">
+          <span style="font-size:22px;flex-shrink:0;line-height:1;margin-top:1px">🧠</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#7060B0">Personalization AI is active</div>
+            <div class="muted" style="margin-top:2px;line-height:1.5">Learning your preferences to curate increasingly personal scenic routes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="scenic-preview" class="scenic-preview" style="display:none">
+    <div class="row" style="margin-bottom:10px">
+      <span>✨</span>
+      <span style="font-size:12px;font-weight:700;color:#7060B0;flex:1">Micro-joy stops added to your route</span>
+      <span id="joy-time-add" class="muted">+4 min</span>
+    </div>
+    <div id="joy-stop-list"></div>
+  </div>
+
+  <div id="pf-pivot" class="alert-box">
+    <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:12px">
+      <span style="font-size:20px;flex-shrink:0">⚠️</span>
+      <div style="font-size:13px;color:#7A3A1A;line-height:1.55;flex:1"><strong>Buffer Pivot Detected!</strong> Trader Joe's has a 15-min wait (unusual for 4pm).</div>
+      <button onclick="document.getElementById('pf-pivot').style.display='none'" style="background:none;border:none;cursor:pointer;color:#C4A07A;font-size:18px;line-height:1;padding:0;flex-shrink:0">×</button>
+    </div>
+    <button class="swap-btn" onclick="doSwap()">Swap to Whole Foods (3 min walk, no wait)</button>
+    <div style="font-size:12px;color:#9A6A4A;text-align:center">Or re-check Trader Joe's at 5:30pm</div>
+  </div>
+  <div id="pf-swapped" style="display:none;background:#EAF7F1;border:1px solid #4DB688;border-radius:12px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#1A5A3A;font-weight:600">
+    ✓ Route updated — heading to Whole Foods instead
+  </div>
+
+  <div style="font-size:15px;font-weight:700;color:#2A2118;margin-bottom:13px">Your Route</div>
+  <div id="route-steps"></div>
+</div>
+
+<!-- ═══ MAP ═══ -->
+<div id="pf-mp" style="display:none">
+  <div class="map-statsbar" style="background:linear-gradient(150deg,#0C3B3E,#1C7060)">
+    <div class="map-stat"><span>↗</span> Today's route</div>
+    <div class="map-stat"><span>🕐</span> <span id="map-time">65 min</span></div>
+    <div class="map-stat"><span>📍</span> <span id="map-stop-count">4 stops</span></div>
+  </div>
+  <svg id="route-svg" viewBox="0 0 370 300" width="100%" style="display:block;background:#EEEBE4"></svg>
+  <div class="map-legend" id="map-legend"></div>
+  <div id="scenic-map-note" style="display:none;background:#FFF8ED;border-top:1px solid #F5D87A;padding:8px 16px;font-size:11px;color:#854F0B;display:flex;align-items:center;gap:6px">
+    ✨ <span id="scenic-map-text">Scenic mode active</span>
+  </div>
+  <div id="stop-detail" style="display:none" class="stop-detail-card">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <div class="row" style="gap:8px">
+        <div id="sd-num" class="stepnum" style="width:26px;height:26px;font-size:12px">1</div>
+        <div><div id="sd-name" style="font-size:14px;font-weight:700;color:#2A2118"></div><div id="sd-task" class="muted" style="margin-top:1px"></div></div>
+      </div>
+      <button onclick="clearStop()" style="background:#EDE9F6;border:none;border-radius:50%;width:26px;height:26px;cursor:pointer;color:#8878C2;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1">×</button>
+    </div>
+    <div class="row" style="gap:8px;margin-bottom:10px">
+      <span class="muted" style="min-width:44px">Status</span>
+      <button id="sd-status-btn" class="status-btn todo" onclick="toggleStopStatus()">To-do</button>
+    </div>
+    <div class="row" style="gap:8px;padding-top:10px;border-top:.5px solid #EDE9F6">
+      <div id="sd-wdot" class="wdot quiet"></div>
+      <div>
+        <div id="sd-wait-live" style="font-size:13px;font-weight:600;color:#2A2118"></div>
+        <div id="sd-wait-note" class="muted" style="margin-top:1px"></div>
+        <div id="sd-wait-src" class="muted" style="margin-top:2px;font-size:10px">via Google busy hours</div>
+      </div>
+    </div>
+  </div>
+  <div id="map-floor" style="height:20px"></div>
+
+  <div class="start-route-wrap">
+    <button class="start-route-btn" onclick="startNavMode()">
+      <span>Start Route</span>
+      <span style="opacity:.5;font-weight:400">·</span>
+      <span id="start-info" style="font-size:13px;opacity:.85">4 stops · 65 min</span>
+      <span style="font-size:18px">→</span>
+    </button>
+    <div style="display:flex;justify-content:center;gap:4px;margin-top:10px">
+      <button class="maps-link" onclick="openMaps('google')">↗ Google Maps</button>
+      <span style="color:#DDD5C8;line-height:2">|</span>
+      <button class="maps-link" onclick="openMaps('apple')">↗ Apple Maps</button>
+      <span style="color:#DDD5C8;line-height:2">|</span>
+      <button class="maps-link" onclick="copyRoute()">⎘ Copy stops</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DETAIL SCREEN ═══ -->
+<div id="detail-screen" class="detail-screen">
+  <div class="det-hdr" style="background:linear-gradient(150deg,#0C3B3E,#1C7060)">
+    <div class="row" style="gap:12px;margin-bottom:10px">
+      <button class="back-btn" onclick="closeDetail()">← Back</button>
+      <div id="det-title" style="font-size:19px;font-weight:800;color:white;letter-spacing:-.3px"></div>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-bottom:5px">
+      <span id="det-prog-text" style="font-size:12px;color:rgba(255,255,255,.8)">0 of 0 done</span>
+      <span id="det-prog-pct" style="font-size:12px;font-weight:800;color:white">0%</span>
+    </div>
+    <div class="det-prog-bar-bg"><div id="det-prog-bar" class="det-prog-bar"></div></div>
+  </div>
+  <div class="det-body">
+    <div id="det-list-wrap"></div>
+    <div class="ti-row" style="margin-top:16px">
+      <input type="text" class="tinput" id="det-add-inp" placeholder="Add to list…" onkeydown="if(event.key==='Enter')detAddItem()">
+      <button class="tadd-btn" onclick="detAddItem()">Add</button>
+    </div>
+    <div id="det-clear-wrap" style="display:none;margin-top:12px;text-align:right">
+      <button onclick="detClearDone()" style="background:none;border:none;color:#C0B8B0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">🗑 Clear completed</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ACTION SHEET ═══ -->
+<div id="action-ov" class="action-ov" onclick="closeActionSheet()">
+  <div class="action-sheet" onclick="event.stopPropagation()">
+    <div style="width:36px;height:4px;border-radius:2px;background:#DDD5C8;margin:0 auto 12px"></div>
+    <div id="action-task-name" style="font-size:12px;font-weight:600;color:#A09488;margin-bottom:12px;text-align:center;padding:0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+    <div style="background:white;border-radius:14px;overflow:hidden;margin-bottom:10px">
+      <button class="action-btn" onclick="startTaskEdit()">
+        <div class="action-icon">✏️</div><span style="flex:1">Edit task name</span><span style="color:#DDD5C8;font-size:16px">›</span>
+      </button>
+      <div class="action-divider"></div>
+      <button class="action-btn" onclick="openTaskList()">
+        <div class="action-icon">📋</div><span id="action-list-label" style="flex:1">Add a list</span><span style="color:#DDD5C8;font-size:16px">›</span>
+      </button>
+      <div class="action-divider"></div>
+      <button class="action-btn" onclick="openRecurringPicker()">
+        <div class="action-icon">🔄</div><span id="action-rec-label" style="flex:1">Set as recurring</span><span style="color:#DDD5C8;font-size:16px">›</span>
+      </button>
+      <div class="action-divider"></div>
+      <button class="action-btn" id="action-tmrw-btn" onclick="doMoveToTomorrow()">
+        <div class="action-icon" id="action-tmrw-icon">📅</div>
+        <span id="action-tmrw-label" style="flex:1">Move to tomorrow</span><span style="color:#DDD5C8;font-size:16px">›</span>
+      </button>
+    </div>
+    <div style="background:white;border-radius:14px;overflow:hidden;margin-bottom:12px">
+      <button class="action-btn danger" onclick="doDeleteTask()">
+        <div class="action-icon red">🗑️</div><span style="flex:1">Remove task</span><span style="color:#F5C8C4;font-size:16px">›</span>
+      </button>
+    </div>
+    <button onclick="closeActionSheet()" style="width:100%;background:white;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;color:#2A2118;cursor:pointer;font-family:inherit">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══ EDIT OVERLAY ═══ -->
+<div id="edit-ov" class="edit-ov" onclick="cancelTaskEdit()">
+  <div class="edit-card" onclick="event.stopPropagation()">
+    <div style="font-size:16px;font-weight:700;color:#2A2118;margin-bottom:14px">✏️ Edit task</div>
+    <input type="text" id="edit-task-inp" class="tinput" style="margin-bottom:16px" onkeydown="if(event.key==='Enter')saveTaskEdit();else if(event.key==='Escape')cancelTaskEdit()">
+    <div style="display:flex;gap:10px">
+      <button onclick="cancelTaskEdit()" style="flex:1;background:#F7F4EE;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:#7A6B5E">Cancel</button>
+      <button onclick="saveTaskEdit()" style="flex:1;background:#8878C2;color:white;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RECURRING PICKER ═══ -->
+<div id="recurring-ov" class="edit-ov" onclick="closeRecurringPicker()">
+  <div class="edit-card" onclick="event.stopPropagation()" style="padding:20px 16px 16px;max-height:80vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:700;color:#2A2118;margin-bottom:3px">🔄 Repeat this task</div>
+    <div class="muted" style="margin-bottom:14px">Task resurfaces automatically on schedule</div>
+    <div id="rec-options-list"></div>
+    <button onclick="closeRecurringPicker()" style="width:100%;background:#F7F4EE;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;color:#7A6B5E;margin-top:10px">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══ COMPLETION SCREEN ═══ -->
+<div id="completion-screen" class="completion-screen">
+  <div class="confetti-wrap" id="confetti-wrap"></div>
+  <div class="comp-ring">✓</div>
+  <div class="comp-title">Route Complete!</div>
+  <div class="comp-sub" id="comp-sub">All errands handled.<br>You crushed it today.</div>
+  <div class="comp-stats">
+    <div class="comp-stat"><div id="comp-num-tasks" class="comp-num">4</div><div class="comp-lbl">tasks done</div></div>
+    <div class="comp-stat"><div id="comp-num-time" class="comp-num">52</div><div class="comp-lbl">min total</div></div>
+    <div class="comp-stat"><div class="comp-num">18</div><div class="comp-lbl">min saved</div></div>
+  </div>
+  <div class="comp-card">
+    <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Completed today</div>
+    <div id="comp-task-list"></div>
+  </div>
+
+  <!-- Detour ratings — populated from nav session ratings, editable -->
+  <div id="comp-detour-ratings" style="display:none;width:100%;background:rgba(255,255,255,.12);border-radius:18px;padding:16px;margin-bottom:18px">
+    <div style="font-size:13px;font-weight:700;color:white;margin-bottom:2px">Your detour ratings</div>
+    <div style="font-size:11px;color:rgba(255,255,255,.6);margin-bottom:14px">Tap to edit · your ratings teach the AI what to suggest next time</div>
+    <div id="comp-detour-list"></div>
+  </div>
+
+  <button class="comp-btn-pri" onclick="closeCompletionScreen()">← Back to overview</button>
+  <button class="comp-btn-sec" onclick="planTomorrow()">Plan tomorrow →</button>
+</div>
+
+<!-- ═══ NAVIGATION SCREEN ═══ -->
+<div id="nav-screen" class="nav-screen">
+  <div class="nav-hdr">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <button onclick="exitNavMode()" style="background:rgba(255,255,255,.18);border:none;border-radius:10px;padding:7px 13px;color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">← Exit</button>
+      <div id="nav-mode-label" style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.5px">NAVIGATING</div>
+      <div id="nav-step-label" style="font-size:13px;font-weight:700;color:white">1 / 4</div>
+    </div>
+    <div class="nav-prog-track"><div id="nav-prog-fill" class="nav-prog-fill" style="width:0%"></div></div>
+    <div id="nav-dest-preview" style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.65)"></div>
+  </div>
+  <svg id="nav-svg" class="nav-map" viewBox="0 0 370 200" width="100%" height="200"></svg>
+  <div class="nav-dir-card" id="nav-dir-card">
+    <!-- content injected by renderNavStep() -->
+  </div>
+  <div id="nav-bottom" style="padding:12px 20px 32px;flex-shrink:0">
+    <!-- button area injected by renderNavStep() -->
+  </div>
+</div>
+
+</div><!-- /phone -->
+<script>
+/* ══════════════════════════
+   STATE
+══════════════════════════ */
+var swapped=false, activeStop=null, activeUserTask=null;
+var activeCat='groceries', nextId=30;
+var currentVibe='e', selectedJoys=['coffee','bakeries','nature'];
+var stopStatus={1:'todo',2:'todo',3:'todo',4:'todo'};
+var detListKey=null, editingDetIdx=null;
+var currentEnergy=6, activeTaskId=null;
+var dragTaskId=null;
+var completionShown=false;
+var suggestions=[], dismissedSuggIds=[], dismissedStoreWarnings={};
+var TASK_TO_STOP={'t1':1,'t2':2,'t3':3,'t4':4};
+var STOP_TO_TASK={1:'t1',2:'t2',3:'t3',4:'t4'};
+var USER_MAP_POS=[
+  {mx:160,my:222},{mx:295,my:140},{mx:78,my:142},
+  {mx:295,my:200},{mx:160,my:108},{mx:78,my:258}
+];
+var REC_OPTIONS=[
+  {id:'none',   label:'None (one-time)',  short:null},
+  {id:'daily',  label:'Every day',        short:'Daily'},
+  {id:'mon',    label:'Every Monday',     short:'Mon'},
+  {id:'tue',    label:'Every Tuesday',    short:'Tue'},
+  {id:'wed',    label:'Every Wednesday',  short:'Wed'},
+  {id:'thu',    label:'Every Thursday',   short:'Thu'},
+  {id:'fri',    label:'Every Friday',     short:'Fri'},
+  {id:'sat',    label:'Every Saturday',   short:'Sat'},
+  {id:'sun',    label:'Every Sunday',     short:'Sun'},
+  {id:'monthly',label:'Monthly',          short:'Monthly'}
+];
+
+var OV_TASKS=[
+  {id:'t1',name:'Pick up prescription',loc:'CVS on 14th St',  icon:'💊',listKey:'pharmacy', time:'8 min', travel:'3 min',tomorrow:false,done:false,userAdded:false,criticalityScore:9, criticalityReason:'Medical supply, time-sensitive',  recurring:true, recurringFreq:'monthly'},
+  {id:'t2',name:'Grocery shopping',    loc:"Trader Joe's",    icon:'🛒',listKey:'groceries',time:'25 min',travel:'6 min',tomorrow:false,done:false,userAdded:false,criticalityScore:6, criticalityReason:'Regular household need',            recurring:true, recurringFreq:'tue'},
+  {id:'t3',name:'Return package',      loc:'UPS Store',        icon:'📦',listKey:null,       time:'10 min',travel:'3 min',tomorrow:false,done:false,userAdded:false,criticalityScore:5, criticalityReason:'Standard errand, can defer',        recurring:false,recurringFreq:null},
+  {id:'t4',name:'Pick up dry cleaning',loc:'Clean Express',   icon:'👔',listKey:null,       time:'7 min', travel:null,   tomorrow:false,done:false,userAdded:false,criticalityScore:4, criticalityReason:'Nice-to-have, easily deferred',     recurring:false,recurringFreq:null}
+];
+
+/* ── Map geometry ── */
+var H=[95,142,183,222,260], V=[42,108,180,248,318];
+var STOPS=[
+  {id:1,name:'CVS on 14th St',short:'CVS',         task:'Pick up prescription',time:'8 min', wait:false,mx:108,my:260},
+  {id:2,name:"Trader Joe's",  short:"Trader Joe's", task:'Grocery shopping',   time:'25 min',wait:true, mx:180,my:142,altName:'Whole Foods',altShort:'Whole Foods',altMx:108,altMy:142},
+  {id:3,name:'UPS Store',     short:'UPS Store',    task:'Return package',      time:'10 min',wait:false,mx:248,my:183},
+  {id:4,name:'Clean Express', short:'Clean Exp.',   task:'Pick up dry cleaning',time:'7 min', wait:false,mx:248,my:260}
+];
+var WAIT={
+  1:{live:'No wait',level:'quiet',  note:'Usually busier 5–7pm'},
+  2:{live:'~15 min',level:'busy',   note:'Busier than usual right now'},
+  3:{live:'No wait',level:'quiet',  note:'Typically quiet at this hour'},
+  4:{live:'No wait',level:'quiet',  note:'Usually busy after 6pm'}
+};
+var WAIT_SW=Object.assign({},WAIT,{2:{live:'No wait',level:'quiet',note:'Typically quiet, good time to go'}});
+
+var JOYS=[
+  {id:'coffee',label:'☕ Coffee'},{id:'bakeries',label:'🥐 Bakeries'},
+  {id:'books',label:'📚 Books'},{id:'nature',label:'🌳 Nature'},
+  {id:'crafts',label:'🎨 Craft Shops'},{id:'flowers',label:'🌸 Florists'},
+  {id:'treats',label:'🍦 Treats'},{id:'music',label:'🎵 Music'}
+];
+
+/* seg=route segment (0=You→Stop1, 1=Stop1→Stop2 …), order=sequence within segment */
+var JOY_SPOTS=[
+  {id:'js1',type:'coffee',  name:'Blue Bottle',mx:128,my:200,init:'C',full:'Blue Bottle Coffee', seg:1,order:1},
+  {id:'js2',type:'bakeries',name:'Bien Cuit',  mx:215,my:152,init:'B',full:'Bien Cuit Bakery',   seg:2,order:1},
+  {id:'js3',type:'nature',  name:'Park Loop',  mx:144,my:162,init:'N',full:'Chelsea Park Loop',  seg:1,order:3},
+  {id:'js4',type:'crafts',  name:'Paper Co.',  mx:180,my:222,init:'A',full:'Paper Source Co.',   seg:1,order:2},
+  {id:'js5',type:'treats',  name:'Milk Bar',   mx:248,my:222,init:'T',full:'Milk Bar Treats',    seg:3,order:1},
+  {id:'js6',type:'flowers', name:'Florist',    mx:90, my:200,init:'F',full:'West Side Florist',  seg:0,order:1}
+];
+
+var LISTS={
+  groceries:[
+    {id:5, text:'Almond milk (2)',done:false},{id:6, text:'Eggs, large',done:true},
+    {id:7, text:'Sourdough bread',done:false},{id:8, text:'Greek yogurt',done:false},
+    {id:9, text:'Cherry tomatoes',done:false},{id:20,text:'Olive oil',done:false},{id:21,text:'Lemons',done:true}
+  ],
+  pharmacy:[
+    {id:10,text:'Allergy medication',done:false},{id:11,text:'Vitamin D3',done:true},
+    {id:12,text:'Hand cream',done:false},{id:13,text:'Band-Aids',done:false}
+  ]
+};
+
+/* ══════════════════════════
+   TABS
+══════════════════════════ */
+function goTab(t){
+  ['ov','rt','mp'].forEach(function(id){
+    var p=document.getElementById('pf-'+id);if(p)p.style.display=(id===t)?'block':'none';
+    var b=document.getElementById('tb-'+id);if(b){b.classList.toggle('on',id===t);b.setAttribute('aria-selected',id===t?'true':'false');}
+  });
+  if(t==='mp')drawMap();
+  if(t==='rt'){renderRouteSteps();renderLeaveBy();}
+}
+
+/* ══════════════════════════
+   ENERGY
+══════════════════════════ */
+function onEnergy(v){
+  currentEnergy=parseInt(v);
+  var pct=((currentEnergy-1)/9*100).toFixed(1)+'%';
+  document.getElementById('ev-display').textContent=currentEnergy+'/10';
+  document.getElementById('ev-fill').style.width=pct;
+  document.getElementById('ev-thumb').style.left=pct;
+  renderOvTasks();
+}
+function energyThreshold(){
+  if(currentEnergy<=3)return 8;
+  if(currentEnergy<=5)return 6;
+  return 0;
+}
+function taskPassesEnergy(task){
+  var thresh=energyThreshold();
+  if(thresh===0)return true;
+  if(!task.criticalityScore)return true; // no score yet — keep visible
+  return task.criticalityScore>=thresh;
+}
+
+/* ══════════════════════════
+   AI CRITICALITY SCORING
+══════════════════════════ */
+function findTask(id){for(var i=0;i<OV_TASKS.length;i++){if(OV_TASKS[i].id===id)return OV_TASKS[i];}return null;}
+
+async function scoreCriticality(taskId){
+  var task=findTask(taskId);
+  if(!task)return;
+  task.analyzing=true;
+  renderOvTasks();
+  try{
+    var res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:120,
+        system:'You are a task criticality scorer for a busy professional managing errands. Return ONLY a raw JSON object, no markdown, no backticks, no explanation: {"score": N, "reason": "brief reason under 8 words"}. Score 1-10: 9-10=medical/prescription/urgent safety need; 7-8=important and time-sensitive; 5-6=regular errand; 3-4=nice-to-have can defer; 1-2=leisure or fully optional.',
+        messages:[{role:'user',content:'Task name: '+task.name+(task.loc&&task.loc!=='No location set'?' at '+task.loc:'')}]
+      })
+    });
+    var data=await res.json();
+    var raw=data.content[0].text.trim().replace(/```json|```/g,'').trim();
+    var parsed=JSON.parse(raw);
+    var t=findTask(taskId);
+    if(t){
+      t.analyzing=false;
+      t.criticalityScore=Math.min(10,Math.max(1,Math.round(parsed.score)||5));
+      t.criticalityReason=parsed.reason||'Standard errand';
+    }
+  }catch(e){
+    var t=findTask(taskId);
+    if(t){t.analyzing=false;t.criticalityScore=5;t.criticalityReason='Standard errand';}
+  }
+  renderOvTasks();
+}
+
+function critBadge(task){
+  if(task.analyzing)return '<span class="crit-badge crit-ing">🔄 Scoring…</span>';
+  if(!task.criticalityScore)return '';
+  var s=task.criticalityScore,r=escH(task.criticalityReason||'');
+  if(s>=8)return '<span class="crit-badge crit-hi" title="'+r+'">🔴 '+s+'</span>';
+  if(s>=6)return '<span class="crit-badge crit-md" title="'+r+'">🟡 '+s+'</span>';
+  if(s>=4)return '<span class="crit-badge crit-lo" title="'+r+'">🟢 '+s+'</span>';
+  return '<span class="crit-badge crit-lo" title="'+r+'">⚪ '+s+'</span>';
+}
+
+/* ══════════════════════════
+   DRAG & DROP
+══════════════════════════ */
+function setupDragDrop(){
+  var container=document.getElementById('ov-tasks');
+  if(!container||container._dd)return;
+  container._dd=true;
+
+  container.addEventListener('dragstart',function(e){
+    var card=e.target.closest('[data-id]');
+    if(!card)return;
+    dragTaskId=card.dataset.id;
+    e.dataTransfer.effectAllowed='move';
+    setTimeout(function(){card.classList.add('ov-dragging');},0);
+  });
+
+  container.addEventListener('dragend',function(){
+    document.querySelectorAll('.ov-dragging,.drag-above,.drag-below').forEach(function(el){
+      el.classList.remove('ov-dragging','drag-above','drag-below');
+    });
+  });
+
+  container.addEventListener('dragover',function(e){
+    e.preventDefault();
+    e.dataTransfer.dropEffect='move';
+    var card=e.target.closest('[data-id]');
+    if(!card)return;
+    document.querySelectorAll('.drag-above,.drag-below').forEach(function(el){
+      el.classList.remove('drag-above','drag-below');
+    });
+    var rect=card.getBoundingClientRect();
+    card.classList.add(e.clientY<rect.top+rect.height/2?'drag-above':'drag-below');
+  });
+
+  container.addEventListener('dragleave',function(e){
+    if(!container.contains(e.relatedTarget)){
+      document.querySelectorAll('.drag-above,.drag-below').forEach(function(el){
+        el.classList.remove('drag-above','drag-below');
+      });
+    }
+  });
+
+  container.addEventListener('drop',function(e){
+    e.preventDefault();
+    var card=e.target.closest('[data-id]');
+    if(!card||!dragTaskId)return;
+    var targetId=card.dataset.id;
+    if(dragTaskId===targetId){dragTaskId=null;return;}
+    var rect=card.getBoundingClientRect();
+    var before=e.clientY<rect.top+card.offsetHeight/2;
+    var from=OV_TASKS.findIndex(function(t){return t.id===dragTaskId;});
+    var item=OV_TASKS.splice(from,1)[0];
+    var to=OV_TASKS.findIndex(function(t){return t.id===targetId;});
+    OV_TASKS.splice(before?to:to+1,0,item);
+    dragTaskId=null;
+    renderOvTasks();
+  });
+}
+
+/* ══════════════════════════
+   OVERVIEW RENDER
+══════════════════════════ */
+function buildTaskCard(task,isTmrw){
+  var hasLink=!!(task.listKey&&!isTmrw&&!task.done);
+  var listName=task.listKey==='groceries'?'Grocery List':'Pharmacy List';
+  var count=task.listKey&&LISTS[task.listKey]?LISTS[task.listKey].length:0;
+  var faded=isTmrw||task.done?';opacity:.6':'';
+  var draggable=(!isTmrw&&!task.done)?'true':'false';
+
+  var h='<div class="ov-wrap" data-id="'+task.id+'" draggable="'+draggable+'">';
+  h+='<div class="card row'+(hasLink?' task-card-link':'')+(isTmrw||task.done?' draggable-none':'')+'"';
+  if(hasLink)h+=' onclick="openDetail(\''+task.listKey+'\',\''+listName+'\')"';
+  h+=' style="gap:9px;align-items:flex-start;cursor:'+(draggable==='true'?'inherit':'default')+faded+'">';
+
+  h+='<div class="ov-cb '+(task.done?'done':'')+'" style="margin-top:1px" onclick="toggleOvDone(\''+task.id+'\');event.stopPropagation()">'+(task.done?'✓':'')+'</div>';
+  h+='<span style="color:#C0B8B0;font-size:13px;flex-shrink:0;user-select:none;margin-top:2px" onclick="event.stopPropagation()" title="Drag to reorder">⠿⠿</span>';
+  h+='<div style="width:34px;height:34px;border-radius:10px;background:#EDE9F6;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;line-height:1;'+(task.done||isTmrw?'filter:grayscale(.5)':'')+'">'+task.icon+'</div>';
+  h+='<div style="flex:1;min-width:0">';
+  h+='<div style="font-size:14px;font-weight:600;color:'+(task.done?'#C0B8B0':(isTmrw?'#A09488':'#2A2118'))+';line-height:1.35'+(task.done?';text-decoration:line-through':'')+'">'+escH(task.name)+'</div>';
+  h+='<div class="muted" style="margin-top:2px">📍 '+escH(task.loc||'No location')+'</div>';
+  /* secondary badges under the name */
+  var subBadges='';
+  if(!isTmrw&&!task.done){
+    if(energyThreshold()>0&&task.criticalityScore)subBadges+=critBadge(task);
+    if(task.recurring&&task.recurringFreq)subBadges+=recBadge(task.recurringFreq);
+  }
+  if(subBadges)h+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">'+subBadges+'</div>';
+  h+='</div>';
+
+  /* right side — ONE thing max + ⋮ */
+  if(isTmrw){
+    h+='<span style="font-size:10px;background:#F2EFF8;color:#AA9CCC;padding:3px 8px;border-radius:12px;font-weight:700;flex-shrink:0">📅 Tmrw</span>';
+  } else if(hasLink){
+    h+='<span class="list-badge" style="flex-shrink:0">'+count+'</span>';
+    h+='<span style="color:#C0B8B0;font-size:18px;flex-shrink:0;line-height:1">›</span>';
+  } else if(task.userAdded&&task.hasLoc&&!task.done){
+    h+='<span style="font-size:10px;background:#E6F5F0;color:#0F6E56;padding:3px 8px;border-radius:12px;font-weight:700;flex-shrink:0;white-space:nowrap">📍 map</span>';
+  } else if(!task.done){
+    h+='<span style="font-size:12px;font-weight:700;color:#A09488;flex-shrink:0;white-space:nowrap">'+task.time+'</span>';
+  }
+
+  h+='<button class="dots-btn" onclick="openActionSheet(\''+task.id+'\');event.stopPropagation()" aria-label="Task options">⋮</button>';
+  h+='</div></div>';
+  return h;
+}
+
+function renderOvTasks(){
+  /* Low energy nudge */
+  var thresh=energyThreshold();
+  var nudge=document.getElementById('low-nudge');
+  if(nudge){
+    if(thresh>0){
+      var label=thresh>=8?'critical tasks only (score 8+)':'important+ tasks (score 6+)';
+      nudge.style.display='block';
+      nudge.innerHTML='🌙 <strong>Low energy mode</strong> — showing '+label+'. AI criticality scores guide filtering.';
+    } else {nudge.style.display='none';}
+  }
+
+  /* Progress — scoped to tasks visible at current energy level */
+  var today=OV_TASKS.filter(function(t){return !t.tomorrow;});
+  var visible=today.filter(function(t){return taskPassesEnergy(t);});
+  var tmrw=OV_TASKS.filter(function(t){return t.tomorrow;});
+
+  var done=visible.filter(function(t){return t.done;}).length;
+  var total=visible.length;
+  var pct=total?Math.round(done/total*100):0;
+  var isComplete=done===total&&total>0;
+  var fill=document.getElementById('prog-fill');
+  if(fill){fill.style.width=pct+'%';fill.style.background=isComplete?'linear-gradient(90deg,#4DB688,#5CC9A0)':'linear-gradient(90deg,#8878C2,#FFC9A3)';}
+  var pc=document.getElementById('prog-count');
+  if(pc){
+    var thresh=energyThreshold();
+    pc.textContent=done+' of '+total+' done'+(thresh>0?' (filtered)':'');
+  }
+  var dm=document.getElementById('prog-done-msg');if(dm)dm.style.display=isComplete?'block':'none';
+
+  /* Build cards */
+  var h='';
+  visible.forEach(function(task,i){
+    h+=buildTaskCard(task,false);
+    if(i<visible.length-1&&task.travel)h+='<div class="travel">↗ '+task.travel+' travel</div>';
+  });
+  if(!visible.length&&!tmrw.length)h='<div style="padding:20px 0;text-align:center;font-size:13px;color:#A09488">No tasks — add one above! ✨</div>';
+  if(tmrw.length){
+    h+='<div class="tmrw-divider">📅 Tomorrow</div>';
+    tmrw.forEach(function(task,i){
+      h+=buildTaskCard(task,true);
+      if(i<tmrw.length-1&&task.travel)h+='<div class="travel" style="opacity:.5">↗ '+task.travel+' travel</div>';
+    });
+  }
+  document.getElementById('ov-tasks').innerHTML=h;
+  setupDragDrop();
+
+  /* Completion screen trigger — all visible tasks done */
+  if(total>0&&done===total&&!completionShown){
+    completionShown=true;
+    setTimeout(showCompletionScreen,420);
+  }
+}
+
+/* ══════════════════════════
+   TOGGLE DONE
+══════════════════════════ */
+function toggleOvDone(taskId){
+  var t=findTask(taskId);if(!t)return;
+  t.done=!t.done;
+  if(TASK_TO_STOP[taskId]!==undefined)stopStatus[TASK_TO_STOP[taskId]]=t.done?'done':'todo';
+  renderOvTasks();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
+
+/* ══════════════════════════
+   ADD USER TASK
+══════════════════════════ */
+function addUserTask(){
+  var nameInp=document.getElementById('add-name');
+  var locInp=document.getElementById('add-loc');
+  var name=nameInp.value.trim();
+  var loc=locInp.value.trim();
+  if(!name)return;
+  var userCount=OV_TASKS.filter(function(t){return t.userAdded;}).length;
+  var pos=USER_MAP_POS[userCount%USER_MAP_POS.length];
+  var letter=String.fromCharCode(65+(userCount%26));
+  var newId='u'+(nextId++);
+  var mx=selectedPlaceData?selectedPlaceData.mx:pos.mx;
+  var my=selectedPlaceData?selectedPlaceData.my:pos.my;
+  selectedPlaceData=null;
+  hideLocDropdown();
+  OV_TASKS.push({
+    id:newId,name:name,loc:loc||'No location set',icon:'📌',
+    listKey:null,time:'—',travel:null,tomorrow:false,done:false,
+    userAdded:true,hasLoc:!!loc,mapLetter:letter,mx:mx,my:my,
+    criticalityScore:null,criticalityReason:null,analyzing:false,
+    recurring:false,recurringFreq:null
+  });
+  completionShown=false;
+  nameInp.value='';locInp.value='';nameInp.focus();
+  /* Flash form green */
+  var form=document.getElementById('add-task-form');
+  if(form){form.style.borderColor='#4DB688';setTimeout(function(){form.style.borderColor='#F2EFF8';},700);}
+  renderOvTasks();
+  scoreCriticality(newId); /* async — will re-render when done */
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
+
+/* ══════════════════════════
+   ACTION SHEET
+══════════════════════════ */
+function openActionSheet(taskId){
+  activeTaskId=taskId;
+  var task=findTask(taskId);if(!task)return;
+  document.getElementById('action-task-name').textContent=task.name;
+  var icon=document.getElementById('action-tmrw-icon'),label=document.getElementById('action-tmrw-label');
+  if(task.tomorrow){label.textContent='Move back to today';icon.textContent='↩️';}
+  else{label.textContent='Move to tomorrow';icon.textContent='📅';}
+  var ll=document.getElementById('action-list-label');
+  if(ll)ll.textContent=task.listKey?'View / edit list':'Add a list';
+  var rl=document.getElementById('action-rec-label');
+  if(rl){
+    if(task.recurring&&task.recurringFreq){
+      var r=REC_OPTIONS.find(function(o){return o.id===task.recurringFreq;});
+      rl.textContent='Recurring: '+(r?r.label:task.recurringFreq);
+    } else {rl.textContent='Set as recurring';}
+  }
+  document.getElementById('action-ov').classList.add('open');
+}
+function closeActionSheet(){document.getElementById('action-ov').classList.remove('open');}
+function openTaskList(){
+  var task=findTask(activeTaskId);if(!task)return;
+  closeActionSheet();
+  /* Create an empty list for this task if it doesn't have one yet */
+  if(!task.listKey){
+    var key='list-'+task.id;
+    task.listKey=key;
+    LISTS[key]=[];
+    renderOvTasks(); /* refresh card to show list badge */
+  }
+  var title=task.name;
+  openDetail(task.listKey,title);
+}
+function startTaskEdit(){
+  var task=findTask(activeTaskId);if(!task)return;
+  closeActionSheet();
+  document.getElementById('edit-task-inp').value=task.name;
+  document.getElementById('edit-ov').classList.add('open');
+  setTimeout(function(){var inp=document.getElementById('edit-task-inp');inp.focus();inp.select();},280);
+}
+function cancelTaskEdit(){document.getElementById('edit-ov').classList.remove('open');}
+function saveTaskEdit(){
+  var n=document.getElementById('edit-task-inp').value.trim();
+  if(n&&activeTaskId){var t=findTask(activeTaskId);if(t)t.name=n;}
+  cancelTaskEdit();renderOvTasks();
+}
+function doMoveToTomorrow(){
+  if(!activeTaskId)return;
+  var t=findTask(activeTaskId);if(t)t.tomorrow=!t.tomorrow;
+  closeActionSheet();renderOvTasks();
+}
+function doDeleteTask(){
+  if(!activeTaskId)return;
+  for(var i=OV_TASKS.length-1;i>=0;i--){if(OV_TASKS[i].id===activeTaskId){OV_TASKS.splice(i,1);break;}}
+  closeActionSheet();renderOvTasks();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
+
+/* ══════════════════════════
+   VIBE + SCENIC
+══════════════════════════ */
+function setVibe(v){
+  currentVibe=v;
+  ['e','lf','sc'].forEach(function(id){document.getElementById('vb-'+id).className='vbtn '+(id===v?'on':'off');});
+  var d={e:'Fastest path, high-traffic corridors',lf:'Quiet streets, shaded paths, flat terrain · +8 min but significantly less physical load',sc:'Route threads through parks, hidden gems, and neighbourhood delights · adds a few minutes'};
+  document.getElementById('vibe-desc').textContent=d[v];
+  document.getElementById('joy-panel').classList.toggle('open',v==='sc');
+  if(v==='sc'){renderJoyChips();updateScenicPreview();}
+  else document.getElementById('scenic-preview').style.display='none';
+  var mn=document.getElementById('scenic-map-note');
+  if(mn){
+    mn.style.display=(v==='sc'||v==='lf')?'flex':'none';
+    mn.style.background=v==='lf'?'#EAF5F0':'#FFF8ED';
+    mn.style.borderTopColor=v==='lf'?'#A7C1B2':'#F5D87A';
+    mn.style.color=v==='lf'?'#2A6654':'#854F0B';
+    var smt=document.getElementById('scenic-map-text');
+    if(smt)smt.textContent=v==='lf'?'Low-friction route · quiet streets · shaded paths · sage-green line on map':'Scenic mode active';
+  }
+  renderRouteSteps();renderLeaveBy();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
+function renderJoyChips(){
+  var h='';
+  JOYS.forEach(function(j){
+    var on=selectedJoys.indexOf(j.id)>=0;
+    var r=joyRatings[j.id]||{};
+    var badge=r.rating?('<span class="joy-chip-rated">'+(r.rating==='love'?'❤️':r.rating==='good'?'👍':'👎')+'</span>'):'';
+    var dim=(r.rating==='skip'&&!on)?'opacity:.5;':'';
+    h+='<button class="joy-chip '+(on?'on':'off')+'" onclick="toggleJoy(\''+j.id+'\')" style="'+dim+'">'+j.label+badge+'</button>';
+  });
+  document.getElementById('joy-chips').innerHTML=h;
+}
+function toggleJoy(id){
+  var i=selectedJoys.indexOf(id);if(i>=0)selectedJoys.splice(i,1);else selectedJoys.push(id);
+  renderJoyChips();updateScenicPreview();renderRouteSteps();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
+function getActiveJoys(){return JOY_SPOTS.filter(function(sp){return selectedJoys.indexOf(sp.type)>=0;});}
+function getActiveJoysForSeg(seg){
+  return getActiveJoys().filter(function(sp){return sp.seg===seg;}).sort(function(a,b){return a.order-b.order;});
+}
+function updateScenicPreview(){
+  var activeJoys=getActiveJoys();
+  var cv=(document.getElementById('custom-joy')||{}).value||'';
+  var prev=document.getElementById('scenic-preview');
+  if(!activeJoys.length&&!cv.trim()){prev.style.display='none';return;}
+  prev.style.display='block';
+  var icons={coffee:'☕',bakeries:'🥐',books:'📚',nature:'🌳',crafts:'🎨',flowers:'🌸',treats:'🍦',music:'🎵'};
+  var segs=['You → Stop 1','Stop 1 → Stop 2','Stop 2 → Stop 3','Stop 3 → Stop 4'];
+  var h='';
+  activeJoys.forEach(function(s){
+    h+='<div class="joy-stop-row"><span style="font-size:14px">'+icons[s.type]+'</span><div style="flex:1"><div style="font-weight:600">'+s.full+'</div><div class="muted">Between '+segs[s.seg]+'</div></div></div>';
+  });
+  if(cv.trim())h+='<div class="joy-stop-row"><span>✨</span><div style="font-weight:600">Searching "'+escH(cv)+'"…</div></div>';
+  document.getElementById('joy-stop-list').innerHTML=h;
+  var timeAdd=activeJoys.length<=2?'+4 min':activeJoys.length<=4?'+7 min':'+10 min';
+  var ta=document.getElementById('joy-time-add');if(ta)ta.textContent=timeAdd;
+  var mn=document.getElementById('scenic-map-text');
+  if(mn)mn.textContent=activeJoys.length+' joy stop'+(activeJoys.length!==1?'s':'')+' woven into your route · personalized by AI';
+}
+
+/* ══════════════════════════
+   SWAP
+══════════════════════════ */
+function doSwap(){
+  swapped=true;
+  document.getElementById('pf-pivot').style.display='none';
+  document.getElementById('pf-swapped').style.display='block';
+  document.getElementById('s2-loc').textContent='📍 Whole Foods';
+  var w=document.getElementById('s2-wait');w.className='ok';w.textContent='✓ No wait';
+  renderRouteSteps();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
+
+/* ══════════════════════════
+   DETAIL SCREEN
+══════════════════════════ */
+function openDetail(listKey,title){
+  detListKey=listKey;editingDetIdx=null;
+  document.getElementById('det-title').textContent=title;
+  renderDetailList();
+  document.getElementById('detail-screen').classList.add('open');
+}
+function closeDetail(){document.getElementById('detail-screen').classList.remove('open');detListKey=null;editingDetIdx=null;renderOvTasks();}
+function renderDetailList(){
+  if(!detListKey)return;
+  var items=LISTS[detListKey];
+  var done=items.filter(function(i){return i.done;}).length;
+  var pct=items.length?Math.round(done/items.length*100):0;
+  document.getElementById('det-prog-text').textContent=done+' of '+items.length+' done';
+  document.getElementById('det-prog-pct').textContent=pct+'%';
+  document.getElementById('det-prog-bar').style.width=pct+'%';
+  document.getElementById('det-clear-wrap').style.display=done>0?'block':'none';
+  var h='';
+  items.forEach(function(item,idx){
+    var isEdit=editingDetIdx===idx;
+    h+='<div class="detail-item">';
+    h+='<div class="cb '+(item.done?'done':'')+'" onclick="detToggle('+item.id+')">'+(item.done?'✓':'')+'</div>';
+    if(isEdit){
+      h+='<input class="det-edit-inp" id="det-inp-'+idx+'" type="text" value="'+escH(item.text)+'" onkeydown="if(event.key===\'Enter\')detSaveEdit('+idx+','+item.id+');else if(event.key===\'Escape\')detCancelEdit()">';
+      h+='<button class="ic-btn save" onclick="detSaveEdit('+idx+','+item.id+')">✓</button>';
+      h+='<button class="ic-btn del" onclick="detCancelEdit()" style="font-size:14px">×</button>';
+    } else {
+      h+='<span class="det-text '+(item.done?'struck':'')+'">'+escH(item.text)+'</span>';
+      h+='<button class="ic-btn edit" onclick="detStartEdit('+idx+')" style="font-size:15px">✏</button>';
+      h+='<button class="ic-btn del"  onclick="detDelete('+item.id+')" style="font-size:15px">🗑</button>';
+    }
+    h+='</div>';
+  });
+  if(!items.length)h='<div class="det-empty">List is empty — add items below!</div>';
+  document.getElementById('det-list-wrap').innerHTML=h;
+  if(editingDetIdx!==null){setTimeout(function(){var inp=document.getElementById('det-inp-'+editingDetIdx);if(inp){inp.focus();var l=inp.value.length;inp.setSelectionRange(l,l);}},0);}
+}
+function detToggle(id){var list=LISTS[detListKey];for(var i=0;i<list.length;i++){if(list[i].id===id){list[i].done=!list[i].done;break;}}renderDetailList();}
+function detStartEdit(idx){editingDetIdx=idx;renderDetailList();}
+function detSaveEdit(idx,id){var inp=document.getElementById('det-inp-'+idx);if(!inp)return;var t=inp.value.trim();if(t){var list=LISTS[detListKey];for(var i=0;i<list.length;i++){if(list[i].id===id){list[i].text=t;break;}}}editingDetIdx=null;renderDetailList();}
+function detCancelEdit(){editingDetIdx=null;renderDetailList();}
+function detDelete(id){var list=LISTS[detListKey];for(var i=list.length-1;i>=0;i--){if(list[i].id===id){list.splice(i,1);break;}}if(editingDetIdx!==null&&editingDetIdx>=list.length)editingDetIdx=null;renderDetailList();}
+function detAddItem(){var inp=document.getElementById('det-add-inp'),t=inp.value.trim();if(!t)return;LISTS[detListKey].push({id:nextId++,text:t,done:false});inp.value='';renderDetailList();}
+function detClearDone(){LISTS[detListKey]=LISTS[detListKey].filter(function(i){return !i.done;});editingDetIdx=null;renderDetailList();}
+
+/* ══════════════════════════
+   MAP
+══════════════════════════ */
+function hitStop(id){activeStop=activeStop===id?null:id;activeUserTask=null;drawMap();refreshStopDetail();}
+function hitUserTask(taskId){
+  activeUserTask=activeUserTask===taskId?null:taskId;activeStop=null;drawMap();
+  var panel=document.getElementById('stop-detail');
+  if(!activeUserTask){panel.style.display='none';document.getElementById('map-floor').style.height='20px';return;}
+  var task=findTask(activeUserTask);if(!task)return;
+  var num=document.getElementById('sd-num');num.textContent=task.mapLetter;num.style.background='#4DB688';
+  document.getElementById('sd-name').textContent=task.name;
+  document.getElementById('sd-task').textContent=task.loc||'No location';
+  var sb=document.getElementById('sd-status-btn');sb.className='status-btn '+(task.done?'done':'todo');sb.textContent=task.done?'✓ Finished':'To-do';
+  document.getElementById('sd-wdot').className='wdot quiet';
+  document.getElementById('sd-wait-live').textContent='User-added task';
+  document.getElementById('sd-wait-note').textContent='Tap status to mark complete';
+  document.getElementById('sd-wait-src').style.display='none';
+  panel.style.display='block';document.getElementById('map-floor').style.height='0';
+}
+function clearStop(){
+  activeStop=null;activeUserTask=null;drawMap();
+  document.getElementById('stop-detail').style.display='none';
+  document.getElementById('map-floor').style.height='20px';
+  document.getElementById('sd-num').style.background='#8878C2';
+  document.getElementById('sd-wait-src').style.display='block';
+}
+function refreshStopDetail(){
+  var panel=document.getElementById('stop-detail');
+  if(!activeStop){panel.style.display='none';document.getElementById('map-floor').style.height='20px';return;}
+  var s=null;for(var i=0;i<STOPS.length;i++){if(STOPS[i].id===activeStop){s=STOPS[i];break;}}if(!s)return;
+  var dn=(swapped&&s.id===2)?s.altName:s.name;
+  var w=(swapped?WAIT_SW:WAIT)[s.id];
+  var st=stopStatus[s.id]||'todo';
+  var num=document.getElementById('sd-num');num.textContent=STOPS.indexOf(s)+1;num.style.background='#8878C2';
+  document.getElementById('sd-name').textContent=dn;
+  document.getElementById('sd-task').textContent=s.task;
+  var sb=document.getElementById('sd-status-btn');sb.className='status-btn '+st;sb.textContent=st==='done'?'✓ Finished':'To-do';
+  document.getElementById('sd-wdot').className='wdot '+w.level;
+  document.getElementById('sd-wait-live').textContent=w.level==='busy'?w.live+' wait':w.live;
+  document.getElementById('sd-wait-note').textContent=w.note;
+  document.getElementById('sd-wait-src').style.display='block';
+  panel.style.display='block';document.getElementById('map-floor').style.height='0';
+}
+function toggleStopStatus(){
+  if(activeUserTask){
+    var t=findTask(activeUserTask);if(t)t.done=!t.done;
+    hitUserTask(activeUserTask);renderOvTasks();return;
+  }
+  if(!activeStop)return;
+  stopStatus[activeStop]=stopStatus[activeStop]==='todo'?'done':'todo';
+  var tid=STOP_TO_TASK[activeStop];
+  if(tid){var t=findTask(tid);if(t)t.done=stopStatus[activeStop]==='done';}
+  renderOvTasks();drawMap();refreshStopDetail();
+}
+
+function drawMap(){
+  var svg=document.getElementById('route-svg');if(!svg)return;
+  var P='#8878C2',yx=42,yy=260,isSc=currentVibe==='sc',isLf=currentVibe==='lf';
+
+  var stops=STOPS.map(function(s){
+    if(swapped&&s.id===2)return Object.assign({},s,{displayName:s.altShort,mx:s.altMx,my:s.altMy,wait:false});
+    return Object.assign({},s,{displayName:s.short});
+  });
+
+  /* Build route pts — joy stops woven into each segment */
+  var pts=[{x:yx,y:yy}];
+  for(var seg=0;seg<stops.length;seg++){
+    if(isSc)getActiveJoysForSeg(seg).forEach(function(sp){pts.push({x:sp.mx,y:sp.my,joyId:sp.id});});
+    pts.push({x:stops[seg].mx,y:stops[seg].my});
+  }
+
+  /* Stats bar */
+  var activeJoyCount=isSc?getActiveJoys().length:0;
+  var userLocTasks=OV_TASKS.filter(function(t){return t.userAdded&&t.hasLoc;});
+  var msc=document.getElementById('map-stop-count');
+  if(msc)msc.textContent=(4+activeJoyCount+userLocTasks.length)+' stops';
+  var mt=document.getElementById('map-time');
+  if(mt){var addMin=isSc?(activeJoyCount<=2?4:activeJoyCount<=4?7:10):isLf?8:0;mt.textContent=(65+addMin)+' min';}
+
+  var o='';
+  /* Blocks */
+  for(var i=0;i<H.length-1;i++){for(var j=0;j<V.length-1;j++){
+    var pk=(i===0&&j===1);
+    o+='<rect x="'+(V[j]+5)+'" y="'+(H[i]+5)+'" width="'+(V[j+1]-V[j]-10)+'" height="'+(H[i+1]-H[i]-10)+'" rx="3" fill="'+(pk?'#C4E8BE':'#E8E3D9')+'"/>';
+  }}
+  o+='<text x="144" y="121" text-anchor="middle" font-size="8" fill="#4A7A5A" font-family="sans-serif" font-weight="600">Chelsea Park</text>';
+  H.forEach(function(y){o+='<line x1="25" y1="'+y+'" x2="345" y2="'+y+'" stroke="#CCC7BA" stroke-width="10" stroke-linecap="square"/>';});
+  V.forEach(function(x){o+='<line x1="'+x+'" y1="72" x2="'+x+'" y2="278" stroke="#CCC7BA" stroke-width="10" stroke-linecap="square"/>';});
+  var hL={'95':'W 20th','142':'W 18th','183':'W 17th','222':'W 16th','260':'W 14th'};
+  var vL={'42':'8th Ave','108':'7th Ave','180':'6th Ave','248':'5th Ave'};
+  Object.keys(hL).forEach(function(y){o+='<text x="348" y="'+(parseInt(y)+4)+'" font-size="7" fill="#9A8E7A" font-family="sans-serif">'+hL[y]+' St</text>';});
+  Object.keys(vL).forEach(function(x){o+='<text x="'+x+'" y="69" text-anchor="middle" font-size="7" fill="#9A8E7A" font-family="sans-serif">'+vL[x]+'</text>';});
+
+  /* Route path threading through all pts */
+  var rc=isSc?'#AA9CCC':isLf?'#7EB89A':P;
+  o+='<path d="'+pts.map(function(p,i){return(i===0?'M':'L')+p.x+','+p.y;}).join(' ')+'" fill="none" stroke="'+rc+'" stroke-width="2.5" stroke-dasharray="7,4" stroke-linecap="round" opacity=".9"/>';
+  /* Arrows */
+  for(var k=0;k<pts.length-1;k++){
+    var pa=pts[k],pb=pts[k+1];
+    var ax=Math.round((pa.x+pb.x)/2),ay=Math.round((pa.y+pb.y)/2);
+    var ang=Math.round(Math.atan2(pb.y-pa.y,pb.x-pa.x)*180/Math.PI);
+    o+='<polygon points="0,-3.5 8,0 0,3.5" fill="'+rc+'" opacity=".65" transform="translate('+ax+','+ay+') rotate('+ang+')"/>';
+  }
+
+  /* You */
+  o+='<circle cx="'+yx+'" cy="'+yy+'" r="13" fill="#4A9EE8" opacity=".15"/>';
+  o+='<circle cx="'+yx+'" cy="'+yy+'" r="7" fill="#4A9EE8"/>';
+  o+='<circle cx="'+yx+'" cy="'+yy+'" r="3" fill="white"/>';
+  o+='<text x="'+(yx+14)+'" y="'+(yy-8)+'" font-size="8.5" fill="#4A9EE8" font-family="sans-serif" font-weight="700">You</text>';
+
+  /* Stop markers (on top of route line) */
+  stops.forEach(function(s,i){
+    var ia=activeStop===s.id,hw=s.wait&&!swapped,isDone=stopStatus[s.id]==='done',r=ia?15:12;
+    var fc=ia?P:(isDone?'#EAF7F1':'white'),sc=isDone?'#4DB688':(hw?'#E8705A':P);
+    o+='<g id="sm'+s.id+'" style="cursor:pointer">';
+    if(ia)o+='<circle cx="'+s.mx+'" cy="'+s.my+'" r="22" fill="'+P+'" opacity=".1"/>';
+    o+='<circle cx="'+s.mx+'" cy="'+s.my+'" r="'+r+'" fill="'+fc+'" stroke="'+sc+'" stroke-width="2.5"/>';
+    if(isDone&&!ia)o+='<text x="'+s.mx+'" y="'+(s.my+5)+'" text-anchor="middle" font-size="13" fill="#4DB688" font-family="sans-serif">✓</text>';
+    else o+='<text x="'+s.mx+'" y="'+(s.my+5)+'" text-anchor="middle" font-size="11" font-weight="800" fill="'+(ia?'white':sc)+'" font-family="sans-serif">'+(i+1)+'</text>';
+    if(hw){o+='<circle cx="'+(s.mx+10)+'" cy="'+(s.my-10)+'" r="6" fill="#E8705A"/>';o+='<text x="'+(s.mx+10)+'" y="'+(s.my-7)+'" text-anchor="middle" font-size="8" font-weight="800" fill="white" font-family="sans-serif">!</text>';}
+    o+='<text x="'+s.mx+'" y="'+(s.my+(ia?25:22))+'" text-anchor="middle" font-size="8" fill="'+(ia?P:(isDone?'#4DB688':'#7A6B5E'))+'" font-family="sans-serif" font-weight="600">'+s.displayName+'</text>';
+    o+='</g>';
+  });
+
+  /* Joy markers (on top of route line, inside the path) */
+  if(isSc){
+    var jC={coffee:'#FAC775',bakeries:'#F4A96A',books:'#A8C8F0',nature:'#7DC87D',crafts:'#C4A8E0',flowers:'#F4A0C0',treats:'#F8D080',music:'#A0D4E4'};
+    var jS={coffee:'#BA7517',bakeries:'#D87A30',books:'#3070A8',nature:'#2A7A2A',crafts:'#7040A8',flowers:'#C04080',treats:'#C8A020',music:'#3090B0'};
+    getActiveJoys().forEach(function(sp){
+      var fc=jC[sp.type]||'#FAC775',sc=jS[sp.type]||'#BA7517';
+      o+='<circle cx="'+sp.mx+'" cy="'+sp.my+'" r="14" fill="'+fc+'" opacity=".22"/>';
+      o+='<circle cx="'+sp.mx+'" cy="'+sp.my+'" r="10" fill="'+fc+'" stroke="'+sc+'" stroke-width="2" opacity=".95"/>';
+      o+='<text x="'+sp.mx+'" y="'+(sp.my+4)+'" text-anchor="middle" font-size="10" font-weight="800" fill="'+sc+'" font-family="sans-serif">'+sp.init+'</text>';
+      o+='<text x="'+sp.mx+'" y="'+(sp.my+22)+'" text-anchor="middle" font-size="7.5" fill="'+sc+'" font-family="sans-serif" font-weight="600">'+sp.name+'</text>';
+    });
+  }
+
+  /* User task markers */
+  userLocTasks.forEach(function(task){
+    var ia=activeUserTask===task.id,r=ia?14:11;
+    var fc=ia?'#4DB688':(task.done?'#EAF7F1':'white');
+    o+='<g id="utsk-'+task.id+'" style="cursor:pointer">';
+    if(ia)o+='<circle cx="'+task.mx+'" cy="'+task.my+'" r="21" fill="#4DB688" opacity=".12"/>';
+    o+='<circle cx="'+task.mx+'" cy="'+task.my+'" r="'+r+'" fill="'+fc+'" stroke="#4DB688" stroke-width="2.5"/>';
+    if(task.done&&!ia)o+='<text x="'+task.mx+'" y="'+(task.my+5)+'" text-anchor="middle" font-size="12" fill="#4DB688" font-family="sans-serif">✓</text>';
+    else o+='<text x="'+task.mx+'" y="'+(task.my+4.5)+'" text-anchor="middle" font-size="10" font-weight="800" fill="'+(ia?'white':'#4DB688')+'" font-family="sans-serif">'+task.mapLetter+'</text>';
+    var short=task.name.length>9?task.name.substring(0,9)+'…':task.name;
+    o+='<text x="'+task.mx+'" y="'+(task.my+(ia?23:20))+'" text-anchor="middle" font-size="7.5" fill="#4DB688" font-family="sans-serif" font-weight="600">'+escH(short)+'</text>';
+    o+='</g>';
+  });
+
+  svg.innerHTML=o;
+
+  /* Click handlers */
+  stops.forEach(function(s){
+    var el=document.getElementById('sm'+s.id);
+    if(el)el.addEventListener('click',(function(id){return function(){hitStop(id);};})(s.id));
+  });
+  userLocTasks.forEach(function(task){
+    var el=document.getElementById('utsk-'+task.id);
+    if(el)el.addEventListener('click',(function(id){return function(){hitUserTask(id);};})(task.id));
+  });
+
+  /* Legend */
+  var leg=document.getElementById('map-legend');
+  if(leg){
+    var jSw=isSc&&getActiveJoys().length?'<div class="leg-item"><div style="width:8px;height:8px;border-radius:50%;background:#FAC775;border:1.5px solid #BA7517;flex-shrink:0"></div>Joy stops</div>':'';
+    var uSw=userLocTasks.length?'<div class="leg-item"><div class="leg-dot" style="background:#4DB688;border:1.5px solid #0F6E56"></div>Your tasks</div>':'';
+    leg.innerHTML='<div class="leg-item"><svg width="20" height="6"><line x1="0" y1="3" x2="20" y2="3" stroke="'+rc+'" stroke-width="2" stroke-dasharray="5,3"/></svg>Route</div>'
+      +'<div class="leg-item"><div class="leg-dot" style="background:#4A9EE8"></div>You</div>'
+      +'<div class="leg-item"><div class="leg-dot" style="background:#E8705A"></div>Delay</div>'
+      +jSw+uSw
+      +'<div class="leg-item" style="margin-left:auto"><div style="width:8px;height:8px;border-radius:2px;background:#C4E8BE;flex-shrink:0"></div>Park</div>'
+      +'<div class="leg-item" style="color:#C0B8B0;font-size:10px">· Tap stop</div>';
+  }
+}
+
+function recBadge(freq){
+  var r=REC_OPTIONS.find(function(o){return o.id===freq;});
+  var label=r&&r.short?r.short:freq;
+  return '<span class="rec-badge">🔄 '+label+'</span>';
+}
+
+/* ══════════════════════════
+   AI SUGGESTIONS
+══════════════════════════ */
+async function fetchSuggestions(){
+  var btn=document.getElementById('sugg-refresh-btn');
+  var chips=document.getElementById('sugg-chips');
+  var walker='<span class="walk-loader"><span class="walk-dot"></span><span class="walk-dot"></span><span class="walk-dot"></span><span class="walk-dot"></span><span class="walk-dot"></span></span>';
+  if(btn){btn.innerHTML=walker+'Finding…';btn.disabled=true;}
+  if(chips)chips.innerHTML='<div class="sugg-skeleton" style="height:34px;border-radius:20px"></div>';
+
+  var recurringList=OV_TASKS.filter(function(t){return t.recurring&&t.recurringFreq;}).map(function(t){
+    var r=REC_OPTIONS.find(function(o){return o.id===t.recurringFreq;});
+    return t.name+' ('+(r?r.label:'recurring')+')';
+  }).join(', ');
+  var existingTasks=OV_TASKS.map(function(t){return t.name;}).join(', ');
+  var hour=new Date().getHours();
+  var timeOfDay=hour<12?'morning':hour<17?'afternoon':'evening';
+  var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var dayName=days[new Date().getDay()];
+
+  try{
+    var res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:300,
+        system:'You are PathFinder\'s errand suggestion AI for a busy NYC professional. Generate exactly 4 smart, context-aware errand suggestions. Return ONLY a raw JSON array with no markdown: [{"id":"s1","emoji":"💊","text":"Refill allergy meds","sublabel":"running low · pharmacy nearby"},{"id":"s2","emoji":"🧴","text":"Hand cream restock","sublabel":"pharmacy is on your route"},...]. Rules: text=2-5 words, sublabel=3-6 words (reason why NOW), vary categories (pharmacy/grocery/household/personal/admin/food), never duplicate existing tasks, factor in recurring patterns and time of day.',
+        messages:[{role:'user',content:'Time: '+timeOfDay+' '+dayName+'. Existing tasks today: '+existingTasks+'. Recurring patterns: '+(recurringList||'none')+'. Energy level: '+currentEnergy+'/10. NYC professional, post-work errands. '+(getRatingsContext()||'')}]
+      })
+    });
+    var data=await res.json();
+    var raw=data.content[0].text.trim().replace(/```json|```/g,'').trim();
+    suggestions=JSON.parse(raw);
+    dismissedSuggIds=[];
+  }catch(e){
+    suggestions=[
+      {id:'s1',emoji:'🧴',text:'Restock hand cream',sublabel:'pharmacy on your route'},
+      {id:'s2',emoji:'☕',text:'Grab coffee beans',sublabel:'running low at home'},
+      {id:'s3',emoji:'🌿',text:'Pick up vitamins',sublabel:'missed last week'},
+      {id:'s4',emoji:'🧺',text:'Laundry detergent',sublabel:'almost out'}
+    ];
+  }
+  if(btn){btn.innerHTML='↻ Refresh';btn.disabled=false;}
+  renderSuggestions();
+}
+
+function renderSuggestions(){
+  var chips=document.getElementById('sugg-chips');if(!chips)return;
+  var visible=suggestions.filter(function(s){return dismissedSuggIds.indexOf(s.id)<0;});
+  if(!visible.length){chips.innerHTML='<div style="font-size:11px;color:#C0B8B0;padding:4px 0">No more suggestions · tap ↻ to refresh</div>';return;}
+  var h='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+  visible.forEach(function(s){
+    h+='<div style="display:inline-flex;align-items:center;gap:5px;background:white;border:1px solid #E0D8CE;border-radius:20px;padding:5px 4px 5px 10px;cursor:pointer;font-size:12px;font-weight:600;color:#2A2118;transition:border-color .15s,box-shadow .15s" onclick="addSuggestion(\''+s.id+'\')" onmouseover="this.style.borderColor=\'#D0CAEC\'" onmouseout="this.style.borderColor=\'#E0D8CE\'">'
+      +'<span style="font-size:14px;line-height:1">'+s.emoji+'</span>'
+      +'<span style="white-space:nowrap">'+escH(s.text)+'</span>'
+      +'<button onclick="dismissSuggestion(\''+s.id+'\');event.stopPropagation()" style="background:none;border:none;cursor:pointer;color:#C0B8B0;font-size:14px;line-height:1;padding:2px 5px;border-radius:50%;transition:color .12s" onmouseover="this.style.color=\'#8878C2\'" onmouseout="this.style.color=\'#C0B8B0\'">×</button>'
+      +'</div>';
+  });
+  h+='</div>';
+  chips.innerHTML=h;
+}
+
+function addSuggestion(id){
+  var s=suggestions.find(function(x){return x.id===id;});if(!s)return;
+  document.getElementById('add-name').value=s.text;
+  document.getElementById('add-loc').focus();
+  dismissSuggestion(id);
+  document.getElementById('add-name').focus();
+}
+
+function dismissSuggestion(id){
+  dismissedSuggIds.push(id);
+  renderSuggestions();
+}
+function dismissStoreWarning(stopNum){
+  dismissedStoreWarnings[stopNum]=true;
+  renderRouteSteps();
+}
+
+/* ══════════════════════════
+   RECURRING PICKER
+══════════════════════════ */
+function openRecurringPicker(){
+  var task=findTask(activeTaskId);if(!task)return;
+  closeActionSheet();
+  var currentFreq=task.recurringFreq||'none';
+  var h='';
+  REC_OPTIONS.forEach(function(opt){
+    var sel=currentFreq===opt.id;
+    h+='<div class="rec-opt'+(sel?' sel':'')+'" onclick="setRecurring(\''+opt.id+'\')">';
+    h+='<div class="rec-dot">'+(sel?'✓':'')+'</div>';
+    h+=escH(opt.label);
+    h+='</div>';
+  });
+  document.getElementById('rec-options-list').innerHTML=h;
+  document.getElementById('recurring-ov').classList.add('open');
+}
+function closeRecurringPicker(){document.getElementById('recurring-ov').classList.remove('open');}
+function setRecurring(freqId){
+  var task=findTask(activeTaskId);if(!task)return;
+  if(freqId==='none'){task.recurring=false;task.recurringFreq=null;}
+  else{task.recurring=true;task.recurringFreq=freqId;}
+  var r=REC_OPTIONS.find(function(o){return o.id===freqId;});
+  var label=document.getElementById('action-rec-label');
+  if(label)label.textContent=task.recurring?'Recurring: '+(r?r.label:'set'):'Set as recurring';
+  closeRecurringPicker();
+  renderOvTasks();
+}
+
+/* ══════════════════════════
+   COMPLETION SCREEN
+══════════════════════════ */
+function showCompletionScreen(){
+  var done=OV_TASKS.filter(function(t){return t.done&&!t.tomorrow;});
+  /* Stats */
+  var n=document.getElementById('comp-num-tasks');if(n)n.textContent=done.length;
+  var totalMin=done.reduce(function(acc,t){return acc+parseInt((t.time||'0').replace(/[^0-9]/g,''));},0);
+  var tm=document.getElementById('comp-num-time');if(tm)tm.textContent=totalMin||52;
+  /* Task list */
+  var tl=document.getElementById('comp-task-list');
+  if(tl){
+    tl.innerHTML=done.map(function(t){
+      return '<div class="comp-task-row">'
+        +'<span style="font-size:16px;flex-shrink:0">'+t.icon+'</span>'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escH(t.name)+'</div>'
+        +'<div style="font-size:11px;color:rgba(255,255,255,.6)">📍 '+escH(t.loc)+'</div>'
+        +'</div>'
+        +'<span style="font-size:18px;flex-shrink:0">✓</span>'
+        +'</div>';
+    }).join('');
+  }
+  /* Detour ratings section */
+  renderDetourRatings();
+  /* Confetti */
+  spawnConfetti();
+  document.getElementById('completion-screen').classList.add('open');
+}
+function closeCompletionScreen(){
+  document.getElementById('completion-screen').classList.remove('open');
+  completionShown=false;
+}
+function planTomorrow(){
+  closeCompletionScreen();
+  /* Move all done tasks to tomorrow */
+  OV_TASKS.forEach(function(t){if(t.done&&!t.tomorrow){t.done=false;t.tomorrow=true;}});
+  renderOvTasks();
+}
+function spawnConfetti(){
+  var wrap=document.getElementById('confetti-wrap');if(!wrap)return;
+  wrap.innerHTML='';
+  var emojis=['🎉','✨','💜','🌟','🎊','⭐','💫','🟣','🎈','💛'];
+  for(var i=0;i<16;i++){
+    var el=document.createElement('div');
+    el.className='cc';
+    el.textContent=emojis[i%emojis.length];
+    el.style.left=(4+Math.random()*92)+'%';
+    el.style.animationDelay=(Math.random()*2.2)+'s';
+    el.style.animationDuration=(1.8+Math.random()*1.6)+'s';
+    el.style.fontSize=(13+Math.random()*14)+'px';
+    wrap.appendChild(el);
+  }
+}
+
+function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+/* ══════════════════════════
+   ROUTE STEPS (dynamic)
+══════════════════════════ */
+/* ══════════════════════════
+   JOY RATINGS (persistent AI learning)
+══════════════════════════ */
+var joyRatings={}; /* {type: {rating:'love'|'good'|'skip', count:N, names:[]}} */
+var JOY_ICONS_MAP={coffee:'☕',bakeries:'🥐',books:'📚',nature:'🌳',crafts:'🎨',flowers:'🌸',treats:'🍦',music:'🎵'};
+var JOY_LABELS={coffee:'Coffee',bakeries:'Bakeries',books:'Books',nature:'Nature',crafts:'Crafts',flowers:'Flowers',treats:'Treats',music:'Music'};
+
+async function loadJoyRatings(){
+  var types=['coffee','bakeries','books','nature','crafts','flowers','treats','music'];
+  for(var i=0;i<types.length;i++){
+    try{
+      var r=await window.storage.get('joy-pref-'+types[i]);
+      if(r)joyRatings[types[i]]=JSON.parse(r.value);
+    }catch(e){}
+  }
+  /* Auto-apply: deselect skips, select loves */
+  types.forEach(function(type){
+    var r=joyRatings[type];
+    if(!r)return;
+    var idx=selectedJoys.indexOf(type);
+    if(r.rating==='skip'&&idx>=0)selectedJoys.splice(idx,1);
+    if(r.rating==='love'&&idx<0)selectedJoys.push(type);
+  });
+}
+
+async function saveJoyRating(type,name,rating){
+  var existing=joyRatings[type]||{count:0,names:[]};
+  var names=[].concat(existing.names||[]);
+  if(names.indexOf(name)<0)names.push(name);
+  joyRatings[type]={rating:rating,count:(existing.count||0)+1,names:names,lastRated:Date.now()};
+  try{await window.storage.set('joy-pref-'+type,JSON.stringify(joyRatings[type]));}catch(e){}
+  /* Update chip UI if scenic panel is open */
+  if(currentVibe==='sc')renderJoyChips();
+  checkAllRated();
+}
+
+function checkAllRated(){
+  var active=getActiveJoys();
+  var allRated=active.length>0&&active.every(function(sp){return joyRatings[sp.type]&&joyRatings[sp.type].rating;});
+  var saved=document.getElementById('comp-ratings-saved');
+  if(saved&&allRated)saved.style.display='block';
+}
+
+function renderDetourRatings(){
+  var section=document.getElementById('comp-detour-ratings');
+  var list=document.getElementById('comp-detour-list');
+  if(!section||!list)return;
+  /* Only show if scenic and we have joy stops in the sequence */
+  var joyItems=navSequence.filter(function(s){return s.type==='joy'&&!s.deleted;});
+  if(!joyItems.length||currentVibe!=='sc'){section.style.display='none';return;}
+  section.style.display='block';
+  var h='';
+  joyItems.forEach(function(joy){
+    var rating=navJoyRatings[joy.id]||(joyRatings[joy.joyType]&&joyRatings[joy.joyType].rating)||null;
+    h+='<div class="rate-stop-row">'
+      +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:8px">'
+      +'<span style="font-size:16px">'+joy.icon+'</span>'
+      +'<span style="font-size:13px;font-weight:600;color:white">'+escH(joy.name)+'</span>'
+      +(joy.visited===false&&!navJoyRatings[joy.id]?'<span style="font-size:10px;background:rgba(255,255,255,.15);color:rgba(255,255,255,.6);padding:1px 8px;border-radius:8px;margin-left:4px">skipped</span>':'')
+      +'</div>';
+    h+='<div style="display:flex;gap:6px">';
+    [{r:'love',l:'❤️ Loved'},{r:'good',l:'👍 Good'},{r:'skip',l:'👎 Skip'}].forEach(function(opt){
+      var sel=rating===opt.r?' sel':'';
+      h+='<button class="rate-btn '+opt.r+sel+'" onclick="editCompRating(\''+joy.id+'\',\''+joy.joyType+'\',\''+escH(joy.name)+'\',\''+opt.r+'\')">'+opt.l+'</button>';
+    });
+    h+='</div></div>';
+  });
+  list.innerHTML=h;
+}
+
+function editCompRating(joyId,joyType,joyName,rating){
+  navJoyRatings[joyId]=rating;
+  saveJoyRating(joyType,joyName,rating);
+  renderDetourRatings();
+}
+
+function joyRatingBadge(type){
+  var r=joyRatings[type];
+  if(!r||!r.rating)return'';
+  return'<span class="joy-chip-rated">'+(r.rating==='love'?'❤️':r.rating==='good'?'👍':'👎')+'</span>';
+}
+
+function getRatingsContext(){
+  var ctx=[];
+  Object.keys(joyRatings).forEach(function(type){
+    var r=joyRatings[type];
+    var label={love:'loved',good:'liked',skip:'disliked'}[r.rating]||r.rating;
+    ctx.push(JOY_LABELS[type]+': '+label+' ('+r.count+'x)');
+  });
+  return ctx.length?'User joy detour ratings — '+ctx.join(', ')+'.':'';
+}
+
+/* ══════════════════════════
+   PLACE DATABASE
+══════════════════════════ */
+var PLACE_DB=[
+  /* Grocery */
+  {name:"Trader Joe's",       cat:'Grocery',      addr:'675 6th Ave, Chelsea',     mx:180,my:142},
+  {name:'Whole Foods Market', cat:'Grocery',      addr:'250 7th Ave, Chelsea',     mx:108,my:142},
+  {name:'Fairway Market',     cat:'Grocery',      addr:'2127 Broadway, UWS',       mx:160,my:222},
+  {name:'Gristedes',          cat:'Grocery',      addr:'740 Amsterdam Ave',        mx:248,my:183},
+  /* Pharmacy */
+  {name:'CVS Pharmacy',       cat:'Pharmacy',     addr:'201 W 14th St',            mx:108,my:260},
+  {name:'Walgreens',          cat:'Pharmacy',     addr:'1440 Broadway',            mx:78, my:200},
+  {name:'Duane Reade',        cat:'Pharmacy',     addr:'100 William St',           mx:248,my:183},
+  {name:'Rite Aid',           cat:'Pharmacy',     addr:'303 W 42nd St',            mx:160,my:108},
+  /* Shipping */
+  {name:'UPS Store',          cat:'Shipping',     addr:'77 W 20th St',             mx:248,my:183},
+  {name:'FedEx Office',       cat:'Shipping',     addr:'100 Park Ave',             mx:295,my:200},
+  {name:'USPS Post Office',   cat:'Shipping',     addr:'421 8th Ave',              mx:78, my:142},
+  /* Dry cleaning */
+  {name:'Clean Express',      cat:'Dry Cleaning', addr:'W 16th St, Chelsea',       mx:248,my:260},
+  {name:'Madame Paulette',    cat:'Dry Cleaning', addr:'1255 2nd Ave',             mx:295,my:140},
+  /* Coffee */
+  {name:'Blue Bottle Coffee', cat:'Coffee',       addr:'450 W 15th St',            mx:128,my:200},
+  {name:'Stumptown Coffee',   cat:'Coffee',       addr:'30 W 8th St',              mx:108,my:222},
+  {name:"Gregory's Coffee",   cat:'Coffee',       addr:'874 6th Ave',              mx:180,my:222},
+  {name:'La Colombe Coffee',  cat:'Coffee',       addr:'400 Lafayette St',         mx:160,my:108},
+  /* Bakery */
+  {name:'Bien Cuit',          cat:'Bakery',       addr:'35 W 8th St',              mx:215,my:152},
+  {name:'Sullivan Street Bakery',cat:'Bakery',    addr:'533 W 47th St',            mx:295,my:140},
+  /* Retail */
+  {name:'Target',             cat:'Retail',       addr:'255 Greenwich St',         mx:78, my:258},
+  {name:'Container Store',    cat:'Retail',       addr:'629 6th Ave',              mx:180,my:260},
+  {name:'Trader Joe\'s Wine', cat:'Wine',         addr:'138 E 14th St',            mx:248,my:260},
+  /* Parks */
+  {name:'Chelsea Park',       cat:'Park',         addr:'W 28th St & 9th Ave',      mx:144,my:162},
+  {name:'Hudson River Park',  cat:'Park',         addr:'Pier 45, Hudson River',    mx:42, my:200},
+  {name:'Madison Square Park',cat:'Park',         addr:'23rd St & Broadway',       mx:248,my:95 },
+  /* Gym / Wellness */
+  {name:'Equinox',            cat:'Gym',          addr:'97 Greenwich Ave',         mx:108,my:200},
+  {name:'SoulCycle',          cat:'Fitness',      addr:'239 E 45th St',            mx:295,my:183},
+  /* Other */
+  {name:'Petco',              cat:'Pet Store',    addr:'560 2nd Ave',              mx:295,my:140},
+  {name:'Bank of America',    cat:'Bank',         addr:'1 Penn Plaza',             mx:78, my:258},
+  {name:'Chase Bank',         cat:'Bank',         addr:'1000 6th Ave',             mx:180,my:183},
+];
+
+var selectedPlaceData=null;
+
+function onLocInput(val){
+  selectedPlaceData=null;
+  if(!val||val.length<2){hideLocDropdown();return;}
+  var q=val.toLowerCase();
+  var matches=PLACE_DB.filter(function(p){
+    return p.name.toLowerCase().indexOf(q)>=0||p.cat.toLowerCase().indexOf(q)>=0||p.addr.toLowerCase().indexOf(q)>=0;
+  }).slice(0,5);
+  if(!matches.length){hideLocDropdown();return;}
+  var dd=document.getElementById('loc-dropdown');if(!dd)return;
+  dd._matches=matches;
+  dd.innerHTML=matches.map(function(p,i){
+    return '<div class="loc-opt" onmousedown="event.preventDefault();selectPlace('+i+')">'
+      +'<div class="loc-opt-name"><span>📍</span>'+escH(p.name)+'<span class="loc-cat">'+escH(p.cat)+'</span></div>'
+      +'<div class="loc-opt-sub">'+escH(p.addr)+'</div>'
+      +'</div>';
+  }).join('');
+  dd.style.display='block';
+}
+function selectPlace(idx){
+  var dd=document.getElementById('loc-dropdown');
+  if(!dd||!dd._matches)return;
+  var p=dd._matches[idx];
+  var inp=document.getElementById('add-loc');
+  if(inp)inp.value=p.name;
+  selectedPlaceData=p;
+  hideLocDropdown();
+}
+function hideLocDropdown(){
+  var dd=document.getElementById('loc-dropdown');
+  if(dd)dd.style.display='none';
+}
+/* Close dropdown on outside click */
+document.addEventListener('mousedown',function(e){
+  var dd=document.getElementById('loc-dropdown');
+  if(dd&&!dd.contains(e.target)&&e.target.id!=='add-loc')hideLocDropdown();
+});
+
+var ROUTE_DATA=[
+  {num:1,name:'Pick up prescription',loc:'CVS on 14th St',   altLoc:null,
+   time:'8 min', travel:'6 min travel',lfTravel:'7 min · via W 13th St',
+   lfNote:'Side entrance on W 13th · shaded awning',
+   hours:'8:00 AM – 10:00 PM',closeH:22,cumMins:8,
+   waitHtml:'<span class="ok">✓ No wait</span>',waitHtmlAlt:null},
+  {num:2,name:'Grocery shopping',    loc:"Trader Joe's",     altLoc:'Whole Foods',
+   time:'25 min',travel:'3 min travel',lfTravel:'8 min · via 8th Ave',
+   lfNote:'Avoiding 7th Ave peak crowds · side-door access',
+   hours:'8:00 AM – 9:00 PM',closeH:21,cumMins:17,
+   waitHtml:'<span class="warn">⚠ 15-min wait</span>',waitHtmlAlt:'<span class="ok">✓ No wait</span>'},
+  {num:3,name:'Return package',      loc:'UPS Store',         altLoc:null,
+   time:'10 min',travel:'4 min travel',lfTravel:'6 min · via 17th St',
+   lfNote:'Quiet block · no stairs · bench at corner',
+   hours:'8:30 AM – 7:00 PM',closeH:19,cumMins:45,
+   waitHtml:'<span class="ok">✓ No wait</span>',waitHtmlAlt:null},
+  {num:4,name:'Pick up dry cleaning',loc:'Clean Express',    altLoc:null,
+   time:'7 min', travel:null,          lfTravel:null,
+   lfNote:'Quick collection · step-free entrance',
+   hours:'7:00 AM – 7:00 PM',closeH:19,cumMins:56,
+   waitHtml:'<span class="ok">✓ No wait</span>',waitHtmlAlt:null}
+];
+/* ══════════════════════════
+   LEAVE-BY INDICATOR
+══════════════════════════ */
+function fmtHour(h){
+  var hrs=Math.floor(h),mins=Math.round((h-hrs)*60);
+  var ap=hrs>=12?'pm':'am';hrs=hrs>12?hrs-12:hrs===0?12:hrs;
+  return hrs+(mins>0?':'+(mins<10?'0':'')+mins:'')+' '+ap;
+}
+function renderLeaveBy(){
+  var card=document.getElementById('leaveby-card');if(!card)return;
+  var now=new Date(),nowH=now.getHours()+now.getMinutes()/60;
+  var isLf=currentVibe==='lf';
+  var routeMin=(currentVibe==='sc'?69:isLf?73:65);
+
+  /* Find the most constrained stop (earliest closing that we risk missing) */
+  var bottleneck=null;
+  ROUTE_DATA.forEach(function(s){
+    var arrivalH=nowH+(s.cumMins+(isLf?8:0))/60;
+    if(s.closeH&&arrivalH+0.05>s.closeH){
+      if(!bottleneck||s.closeH<bottleneck.closeH)bottleneck=s;
+    }
+  });
+
+  /* General leave-by = latest closing - full route time */
+  var allClose=ROUTE_DATA.reduce(function(mn,s){return s.closeH&&s.closeH<mn?s.closeH:mn;},24);
+  var leaveH=allClose-routeMin/60;
+  var minsLeft=(leaveH-nowH)*60;
+
+  var bg,border,textCol,icon;
+  if(minsLeft<0){bg='#FDEAE8';border='#E8B0AA';textCol='#8A2A20';icon='⚠️';}
+  else if(minsLeft<30){bg='#FFF3E0';border='#F5D87A';textCol='#7A5010';icon='🕐';}
+  else if(minsLeft<90){bg='#FFF8F0';border='#F5D87A';textCol='#7A5010';icon='🕐';}
+  else{bg='#F0F7F4';border='#A7C1B2';textCol='#1A5A3A';icon='✓';}
+
+  var leaveStr=fmtHour(leaveH);
+  var closeStop=ROUTE_DATA.reduce(function(mn,s){return s.closeH&&s.closeH<mn.closeH?s:mn;},{closeH:24,name:''});
+
+  card.style.display='flex';
+  card.style.background=bg;
+  card.style.border='1px solid '+border;
+  card.innerHTML=
+    '<div style="font-size:22px;flex-shrink:0">'+icon+'</div>'
+    +'<div style="flex:1;min-width:0">'
+    +(minsLeft<0
+      ? '<div style="font-size:13px;font-weight:700;color:'+textCol+'">You may miss '+escH(closeStop.name)+'</div>'
+        +'<div style="font-size:11px;color:'+textCol+';opacity:.8;margin-top:2px">Closes at '+fmtHour(closeStop.closeH)+' · leave now</div>'
+      : '<div style="font-size:11px;font-weight:600;color:'+textCol+';text-transform:uppercase;letter-spacing:.4px">Leave by</div>'
+        +'<div class="leaveby-time" style="color:'+textCol+'">'+leaveStr+'</div>'
+        +'<div style="font-size:11px;color:'+textCol+';opacity:.75;margin-top:2px">'
+          +escH(closeStop.name)+' closes at '+fmtHour(closeStop.closeH)+' · route takes '+routeMin+' min'
+        +'</div>'
+    )
+    +'</div>'
+    +'<div style="font-size:11px;font-weight:700;padding:4px 10px;background:rgba(0,0,0,.06);border-radius:20px;color:'+textCol+';white-space:nowrap">'
+    +(minsLeft<0?'Overdue':minsLeft<60?Math.round(minsLeft)+' min left':Math.floor(minsLeft/60)+'h '+Math.round(minsLeft%60)+'m left')
+    +'</div>';
+
+  /* Update start-info in map CTA */
+  var si=document.getElementById('start-info');
+  if(si)si.textContent='4 stops · '+routeMin+' min';
+}
+
+/* ══════════════════════════
+   START ROUTE / OPEN MAPS
+══════════════════════════ */
+/* ══════════════════════════
+   INTERNAL NAVIGATION
+══════════════════════════ */
+var NAV_LEGS=[
+  {stopNum:1,name:'CVS Pharmacy',   addr:'201 W 14th St',  icon:'💊',
+   steps:['Head east along W 14th St','Continue for half a block','CVS is on your right'],
+   mins:3,dist:'0.2 mi',mx:108,my:260},
+  {stopNum:2,name:"Trader Joe's",   addr:'675 6th Ave',    icon:'🛒',
+   steps:['Head north on 7th Ave for 4 blocks','Turn right onto W 18th St','Turn left onto 6th Ave','Trader Joe\'s is on your right'],
+   mins:7,dist:'0.4 mi',mx:180,my:142},
+  {stopNum:3,name:'UPS Store',      addr:'77 W 20th St',   icon:'📦',
+   steps:['Exit and head north on 6th Ave','Turn right onto W 20th St','UPS Store is mid-block on your right'],
+   mins:4,dist:'0.3 mi',mx:248,my:183},
+  {stopNum:4,name:'Clean Express',  addr:'W 16th St',      icon:'👔',
+   steps:['Head south on 5th Ave for 4 blocks','Turn right onto W 16th St','Clean Express is on your left'],
+   mins:5,dist:'0.4 mi',mx:248,my:260}
+];
+/* Joy stop brief directions keyed by type */
+var JOY_NAV_STEPS={
+  coffee:['Follow the detour off the main path','The café entrance is street-level'],
+  bakeries:['Step in for a moment — the display is in the window','Counter service, quick stop'],
+  books:['Browse at your own pace','Back on route when you\'re ready'],
+  nature:['Take the path into the park','Enjoy a moment — continue when ready'],
+  crafts:['The shop is just off the corner','Quick browse of the front display'],
+  flowers:['Fresh arrangements are by the door','A few seconds is enough to enjoy'],
+  treats:['Queue forms quickly — go to the back','Enjoy your treat on the way to the next stop'],
+  music:['The record bins are just inside','Worth a quick look']
+};
+var navSequence=[], navStep=0, navJoyRatings={};
+
+function buildNavSequence(){
+  var seq=[];
+  for(var seg=0;seg<4;seg++){
+    /* Joy stops for this segment (if scenic mode) */
+    if(currentVibe==='sc'){
+      getActiveJoysForSeg(seg).forEach(function(sp){
+        seq.push({
+          type:'joy',id:sp.id,joyType:sp.type,
+          name:sp.full,icon:JOY_ICONS_MAP[sp.type]||'✨',
+          addr:sp.name+' · Chelsea, NYC',
+          steps:JOY_NAV_STEPS[sp.type]||['Head to the detour spot','Enjoy the moment'],
+          mins:2,dist:'0.1 mi',mx:sp.mx,my:sp.my,
+          deleted:false,visited:false
+        });
+      });
+    }
+    /* Main stop */
+    var leg=NAV_LEGS[seg];
+    seq.push(Object.assign({},leg,{type:'stop',deleted:false,visited:false}));
+  }
+  return seq;
+}
+
+function startNavMode(){
+  navSequence=buildNavSequence();
+  navStep=0;
+  navJoyRatings={};
+  document.getElementById('nav-screen').classList.add('open');
+  renderNavStep();
+}
+function exitNavMode(){
+  document.getElementById('nav-screen').classList.remove('open');
+}
+
+function visibleSequence(){
+  return navSequence.filter(function(s){return !s.deleted;});
+}
+function currentItem(){return visibleSequence()[navStep];}
+
+function advanceNav(){
+  var vis=visibleSequence();
+  if(navStep>=vis.length-1){
+    /* All done */
+    exitNavMode();
+    completionShown=false;
+    setTimeout(showCompletionScreen,350);
+  } else {
+    navStep++;
+    renderNavStep();
+  }
+}
+
+function arrivedAtStop(){
+  var item=currentItem();if(!item||item.type!=='stop')return;
+  var taskId=STOP_TO_TASK[item.stopNum];
+  if(taskId){var t=findTask(taskId);if(t)t.done=true;}
+  stopStatus[item.stopNum]='done';
+  item.visited=true;
+  renderOvTasks();
+  advanceNav();
+}
+
+function visitedJoy(){
+  /* Show inline rating prompt */
+  var item=currentItem();if(!item||item.type!=='joy')return;
+  var nb=document.getElementById('nav-bottom');
+  nb.innerHTML='<div style="font-size:13px;font-weight:700;color:#2A2118;margin-bottom:10px;text-align:center">How was it?</div>'
+    +'<div class="nav-rate-row">'
+    +'<button class="nav-rate-btn love" onclick="rateJoyInNav(\''+item.id+'\',\'love\')">❤️ Loved</button>'
+    +'<button class="nav-rate-btn good" onclick="rateJoyInNav(\''+item.id+'\',\'good\')">👍 Good</button>'
+    +'<button class="nav-rate-btn skip" onclick="rateJoyInNav(\''+item.id+'\',\'skip\')">👎 Skip next time</button>'
+    +'</div>';
+}
+
+function rateJoyInNav(joyId,rating){
+  navJoyRatings[joyId]=rating;
+  /* Save to persistent storage */
+  var item=navSequence.find(function(s){return s.id===joyId;});
+  if(item){item.visited=true;saveJoyRating(item.joyType,item.name,rating);}
+  /* Flash confirmation */
+  var nb=document.getElementById('nav-bottom');
+  var emoji={love:'❤️',good:'👍',skip:'👎'}[rating]||'✓';
+  nb.innerHTML='<div style="text-align:center;padding:20px 0;font-size:22px">'+emoji+'</div>'
+    +'<div style="text-align:center;font-size:13px;color:#7A6B5E;margin-bottom:16px">Saved!</div>';
+  setTimeout(advanceNav,700);
+}
+
+function skipJoyDetour(){
+  var item=currentItem();if(!item||item.type!=='joy')return;
+  item.visited=false;
+  advanceNav();
+}
+
+function deleteJoyDetour(){
+  var item=currentItem();if(!item||item.type!=='joy')return;
+  item.deleted=true;
+  /* Also remove from selectedJoys so it won't show in future */
+  var idx=selectedJoys.indexOf(item.joyType);
+  if(idx>=0)selectedJoys.splice(idx,1);
+  renderJoyChips();updateScenicPreview();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+  advanceNav();
+}
+
+function renderNavStep(){
+  var item=currentItem();if(!item)return;
+  var vis=visibleSequence();
+  var pct=Math.round((navStep/vis.length)*100);
+  var stops=STOPS.map(function(s){
+    if(swapped&&s.id===2)return Object.assign({},s,{displayName:s.altShort,mx:s.altMx,my:s.altMy});
+    return Object.assign({},s,{displayName:s.short});
+  });
+
+  /* Header */
+  var hdr=document.getElementById('nav-screen').querySelector('.nav-hdr');
+  var modeLabel=document.getElementById('nav-mode-label');
+  if(item.type==='joy'){
+    hdr.classList.add('joy-hdr');
+    if(modeLabel)modeLabel.textContent='✨ DETOUR';
+  } else {
+    hdr.classList.remove('joy-hdr');
+    if(modeLabel)modeLabel.textContent='NAVIGATING';
+  }
+  document.getElementById('nav-step-label').textContent=(navStep+1)+' / '+vis.length;
+  document.getElementById('nav-prog-fill').style.width=pct+'%';
+  var next=vis[navStep+1];
+  document.getElementById('nav-dest-preview').textContent=next?'Then → '+next.name:'Last stop — almost done!';
+
+  /* Mini map */
+  if(item.type==='joy'){
+    drawNavMap(null,stops,{x:item.mx,y:item.my,icon:item.icon});
+  } else {
+    drawNavMap(item.stopNum,stops,null);
+  }
+
+  /* Direction card */
+  var card=document.getElementById('nav-dir-card');
+  if(item.type==='joy'){
+    var h='<div class="nav-joy-badge">✨ DETOUR</div>';
+    h+='<div class="row" style="gap:10px;margin-bottom:6px">'
+      +'<span style="font-size:26px;line-height:1">'+item.icon+'</span>'
+      +'<div><div style="font-size:18px;font-weight:700;color:#2A2118;font-family:\'Playfair Display\',Georgia,serif">'+escH(item.name)+'</div>'
+      +'<div style="font-size:12px;color:#A09488;margin-top:1px">'+escH(item.addr)+'</div></div>'
+      +'</div>';
+    h+='<div style="font-size:12px;color:#8878C2;font-weight:600;margin-bottom:14px;margin-top:4px">~'+item.mins+' min · '+item.dist+'</div>';
+    h+='<div style="font-size:11px;font-weight:700;color:#B0A898;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">To get there</div>';
+    item.steps.forEach(function(step,i){
+      h+='<div class="nav-step-row"><div class="nav-step-num joy">'+(i+1)+'</div><div style="flex:1;line-height:1.45">'+escH(step)+'</div></div>';
+    });
+    card.innerHTML=h;
+  } else {
+    var h2='<div class="row" style="gap:10px;margin-bottom:4px">'
+      +'<span style="font-size:26px;line-height:1">'+item.icon+'</span>'
+      +'<div><div style="font-size:18px;font-weight:700;color:#2A2118;font-family:\'Playfair Display\',Georgia,serif">'+escH(item.name)+'</div>'
+      +'<div style="font-size:12px;color:#A09488;margin-top:1px">'+escH(item.addr)+'</div></div>'
+      +'</div>';
+    h2+='<div style="font-size:12px;color:#8878C2;font-weight:600;margin-bottom:14px;margin-top:6px">~'+item.mins+' min walk · '+item.dist+'</div>';
+    h2+='<div style="font-size:11px;font-weight:700;color:#B0A898;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Walking directions</div>';
+    item.steps.forEach(function(step,i){
+      h2+='<div class="nav-step-row"><div class="nav-step-num">'+(i+1)+'</div><div style="flex:1;line-height:1.45">'+escH(step)+'</div></div>';
+    });
+    card.innerHTML=h2;
+  }
+
+  /* Bottom action area */
+  var nb=document.getElementById('nav-bottom');
+  if(item.type==='joy'){
+    nb.innerHTML='<div style="display:flex;gap:8px;margin-bottom:8px">'
+      +'<button class="nav-visit-btn" onclick="visitedJoy()">✓ I visited</button>'
+      +'<button class="nav-skip-btn" onclick="skipJoyDetour()">→ Skip</button>'
+      +'</div>'
+      +'<button class="nav-delete-link" onclick="deleteJoyDetour()">🗑 Remove this stop from my route</button>';
+  } else {
+    nb.innerHTML='<button class="nav-arrive-btn" onclick="arrivedAtStop()">'
+      +'<span>✓ Arrived at '+escH(item.name)+'</span>'
+      +'<span style="opacity:.5;font-weight:400">·</span>'
+      +'<span style="font-size:13px;opacity:.8">'+(next?'Next: '+next.name:'Finish route')+' →</span>'
+      +'</button>';
+  }
+}
+
+function drawNavMap(activeStopNum,stops,joyTarget){
+  var svg=document.getElementById('nav-svg');if(!svg)return;
+  var P='#8878C2',yx=42,yy=260;
+  var sy=function(y){return Math.round(y*200/300);};
+  var pts=[{x:yx,y:sy(260)}];
+  stops.forEach(function(s){pts.push({x:s.mx,y:sy(s.my)});});
+  var o='';
+  [95,142,183,222,260].forEach(function(y){o+='<line x1="20" y1="'+sy(y)+'" x2="350" y2="'+sy(y)+'" stroke="#DEDAD2" stroke-width="8"/>';});
+  [42,108,180,248].forEach(function(x){o+='<line x1="'+x+'" y1="55" x2="'+x+'" y2="'+sy(280)+'" stroke="#DEDAD2" stroke-width="8"/>';});
+  o+='<path d="'+pts.map(function(p,i){return(i===0?'M':'L')+p.x+','+p.y;}).join(' ')+'" fill="none" stroke="'+P+'" stroke-width="2" stroke-dasharray="6,4" opacity=".45"/>';
+  o+='<circle cx="'+yx+'" cy="'+sy(260)+'" r="5" fill="#4A9EE8"/><circle cx="'+yx+'" cy="'+sy(260)+'" r="2" fill="white"/>';
+  stops.forEach(function(s,i){
+    var isActive=s.id===activeStopNum;
+    var isDone=stopStatus[s.id]==='done';
+    var ssy=sy(s.my);
+    if(isActive){
+      o+='<circle cx="'+s.mx+'" cy="'+ssy+'" r="18" fill="'+P+'" opacity=".1"><animate attributeName="r" values="14;20;14" dur="1.8s" repeatCount="indefinite"/><animate attributeName="opacity" values=".15;0;.15" dur="1.8s" repeatCount="indefinite"/></circle>';
+      o+='<circle cx="'+s.mx+'" cy="'+ssy+'" r="14" fill="'+P+'"/>';
+      o+='<text x="'+s.mx+'" y="'+(ssy+5)+'" text-anchor="middle" font-size="13" font-weight="800" fill="white" font-family="sans-serif">'+(i+1)+'</text>';
+      o+='<text x="'+s.mx+'" y="'+(ssy+26)+'" text-anchor="middle" font-size="8" font-weight="700" fill="'+P+'" font-family="sans-serif">'+escH(s.displayName)+'</text>';
+    } else {
+      var fc=isDone?'#4DB688':'white',sc=isDone?'#4DB688':P;
+      o+='<circle cx="'+s.mx+'" cy="'+ssy+'" r="10" fill="'+fc+'" stroke="'+sc+'" stroke-width="1.5" opacity=".65"/>';
+      o+='<text x="'+s.mx+'" y="'+(ssy+4)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+(isDone?'white':sc)+'" font-family="sans-serif" opacity=".65">'+(isDone?'✓':(i+1))+'</text>';
+    }
+  });
+  /* Joy target marker */
+  if(joyTarget){
+    var jy=sy(joyTarget.y);
+    o+='<circle cx="'+joyTarget.x+'" cy="'+jy+'" r="16" fill="#FFD166" opacity=".2"><animate attributeName="r" values="12;18;12" dur="1.8s" repeatCount="indefinite"/><animate attributeName="opacity" values=".25;0;.25" dur="1.8s" repeatCount="indefinite"/></circle>';
+    o+='<circle cx="'+joyTarget.x+'" cy="'+jy+'" r="12" fill="#FFD166" stroke="#B07820" stroke-width="2"/>';
+    o+='<text x="'+joyTarget.x+'" y="'+(jy+5)+'" text-anchor="middle" font-size="14" font-family="sans-serif">'+joyTarget.icon+'</text>';
+  }
+  svg.innerHTML=o;
+}
+function openMaps(type){
+  var stop2=swapped?'Whole Foods Market 250 7th Ave New York NY':"Trader Joe's 675 6th Ave New York NY";
+  var waypoints=['CVS Pharmacy 201 W 14th St New York NY',stop2,'UPS Store 77 W 20th St New York NY'];
+  var dest='Clean Express New York NY';
+  var walk='walking';
+  var url;
+  if(type==='apple'){
+    url='https://maps.apple.com/?saddr=My+Location&daddr='+encodeURIComponent('CVS Pharmacy 201 W 14th St New York NY')+'&dirflg=w';
+  } else {
+    url='https://www.google.com/maps/dir/?api=1'
+      +'&origin=My+Location'
+      +'&destination='+encodeURIComponent(dest)
+      +'&waypoints='+encodeURIComponent(waypoints.join('|'))
+      +'&travelmode='+walk;
+  }
+  window.open(url,'_blank');
+}
+function copyRoute(){
+  var stop2=swapped?"Whole Foods Market":"Trader Joe's";
+  var text='My errand route:\n1. CVS on 14th St\n2. '+stop2+'\n3. UPS Store\n4. Clean Express\n\nTotal: ~65 min walking';
+  navigator.clipboard&&navigator.clipboard.writeText(text).then(function(){
+    var btn=event.target;var orig=btn.textContent;btn.textContent='✓ Copied!';
+    setTimeout(function(){btn.textContent=orig;},1800);
+  });
+}
+var JOY_ICONS={coffee:'☕',bakeries:'🥐',books:'📚',nature:'🌳',crafts:'🎨',flowers:'🌸',treats:'🍦',music:'🎵'};
+var JOY_CATS={coffee:'Coffee shop',bakeries:'Bakery',books:'Bookshop',nature:'Park / nature',crafts:'Craft shop',flowers:'Florist',treats:'Sweet treat',music:'Music spot'};
+
+function renderRouteSteps(){
+  var el=document.getElementById('route-steps');if(!el)return;
+  var isSc=currentVibe==='sc';
+  var isLf=currentVibe==='lf';
+  var h='';
+
+  /* ── Low-Friction: AI reasoning banner ── */
+  if(isLf){
+    h+='<div style="background:#EAF5F0;border:1.5px solid #A7C1B2;border-radius:14px;padding:13px 15px;margin-bottom:16px">'
+     +'<div style="font-size:12px;font-weight:700;color:#2A6654;margin-bottom:9px;display:flex;align-items:center;gap:6px">🌿 How AI reduced friction on this route</div>'
+     +'<div style="display:flex;flex-direction:column;gap:5px">';
+    ['Avoiding 7th Ave · peak crowds 4–7 pm',
+     'All stops have step-free access',
+     'Shaded path covers 80% of the walk',
+     '12-min buffer built into total timing'
+    ].forEach(function(r){h+='<div style="font-size:12px;color:#2E6655;display:flex;gap:6px"><span style="color:#5AA882;flex-shrink:0">✓</span>'+r+'</div>';});
+    h+='</div>'
+     +'<div style="margin-top:10px;padding-top:9px;border-top:.5px solid #A7C1B2;font-size:11px;color:#7A6B5E">'
+     +'<span style="font-weight:700">+8 min</span> vs fastest route · significantly less physical load</div>'
+     +'</div>';
+  }
+
+  /* ── Scenic: joy stops before stop 1 (seg 0) ── */
+  if(isSc){
+    var seg0=getActiveJoysForSeg(0);
+    seg0.forEach(function(sp){h+=joyStopHtml(sp,true);});
+    if(seg0.length)h+=connectorHtml('joy');
+  }
+
+  ROUTE_DATA.forEach(function(stop,idx){
+    var loc=(swapped&&stop.num===2&&stop.altLoc)?stop.altLoc:stop.loc;
+    var waitHtml=(swapped&&stop.num===2&&stop.waitHtmlAlt)?stop.waitHtmlAlt:stop.waitHtml;
+    var travelLabel=isLf?(stop.lfTravel||stop.travel):stop.travel;
+    var stepBg=isLf?'#2A7A66':'#8878C2';
+    var cardBorder=isLf?';border-left:3px solid #A7C1B2':'';
+
+    /* stop card */
+    h+='<div class="row" style="align-items:flex-start;gap:12px">';
+    h+='<div class="stepnum" style="background:'+stepBg+'">'+stop.num+'</div>';
+    h+='<div class="card" style="flex:1'+cardBorder+'">';
+    h+='<div style="font-size:14px;font-weight:600;color:#2A2118">'+escH(stop.name)+'</div>';
+    h+='<div class="muted" style="margin-top:2px">📍 '+escH(loc)+'</div>';
+    /* hours + closing-soon warning */
+    if(stop.hours){
+      var nowH2=new Date().getHours()+new Date().getMinutes()/60;
+      var arrH=nowH2+stop.cumMins/60+(isLf?8/60*idx:0);
+      var missed=stop.closeH&&arrH>=stop.closeH;
+      var closing=stop.closeH&&!missed&&(stop.closeH-arrH)<1.5;
+      var xBtn='<button onclick="dismissStoreWarning('+stop.num+')" style="background:none;border:none;cursor:pointer;font-size:14px;line-height:1;color:inherit;opacity:.5;padding:0 0 0 6px;flex-shrink:0" title="Dismiss">×</button>';
+      if((missed||closing)&&!dismissedStoreWarnings[stop.num]){
+        if(missed) h+='<div style="font-size:11px;color:#C04030;margin-top:4px;display:flex;align-items:center">⚠️ Closes '+fmtHour(stop.closeH)+' · you\'d arrive ~'+fmtHour(arrH)+xBtn+'</div>';
+        else       h+='<div style="font-size:11px;color:#B07020;margin-top:4px;display:flex;align-items:center">🕐 Closes '+fmtHour(stop.closeH)+' · '+Math.round((stop.closeH-arrH)*60)+' min after you arrive'+xBtn+'</div>';
+      } else if(!missed&&!closing){
+        h+='<div style="font-size:11px;color:#B0A898;margin-top:4px">⏰ '+escH(stop.hours)+'</div>';
+      }
+    }
+    if(isLf&&stop.lfNote){
+      h+='<div style="font-size:11px;color:#2E6655;margin-top:5px;display:flex;align-items:flex-start;gap:4px">'
+       +'<span style="flex-shrink:0">🌿</span><span>'+escH(stop.lfNote)+'</span></div>';
+    }
+    h+='<div class="row" style="gap:12px;margin-top:8px"><span class="muted">🕐 '+stop.time+'</span>'+waitHtml+'</div>';
+    h+='</div></div>';
+
+    /* connector after this stop */
+    if(travelLabel){
+      var segJoys=isSc?getActiveJoysForSeg(idx+1):[];
+      if(isSc&&segJoys.length){
+        h+=connectorHtml('main',travelLabel+' · then joy stops ↓');
+        segJoys.forEach(function(sp,ji){
+          h+=joyStopHtml(sp,false);
+          if(ji<segJoys.length-1)h+=connectorHtml('joy');
+        });
+        h+=connectorHtml('joy','continuing to stop '+(stop.num+1));
+      } else {
+        h+=connectorHtml(isLf?'lf':'main',travelLabel);
+      }
+    }
+  });
+
+  el.innerHTML=h;
+}
+
+function joyStopHtml(sp){
+  var icon=JOY_ICONS[sp.type]||'✨';
+  var cat=JOY_CATS[sp.type]||'Joy stop';
+  return '<div class="row" style="align-items:flex-start;gap:12px">'
+    +'<div class="joy-step-icon">'+icon+'</div>'
+    +'<div class="joy-route-card" style="flex:1">'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
+    +'<div><div class="joy-route-name">'+escH(sp.full)+'</div>'
+    +'<div class="joy-route-meta">'+cat+' · scenic detour</div></div>'
+    +'<button onclick="dismissJoyStop(\''+sp.type+'\')" title="Remove from route" '
+    +'style="background:none;border:none;cursor:pointer;color:#C4A040;font-size:16px;line-height:1;padding:0 0 0 4px;flex-shrink:0;font-family:inherit" '
+    +'onmouseover="this.style.color=\'#8A5010\'" onmouseout="this.style.color=\'#C4A040\'">×</button>'
+    +'</div></div>'
+    +'<div class="joy-min-badge">+2 min</div>'
+    +'</div>';
+}
+
+function dismissJoyStop(type){
+  var i=selectedJoys.indexOf(type);
+  if(i>=0)selectedJoys.splice(i,1);
+  renderJoyChips();updateScenicPreview();renderRouteSteps();
+  if(document.getElementById('pf-mp').style.display!=='none')drawMap();
+}
+
+function connectorHtml(type,label){
+  var col=type==='joy'?'#E8CC70':type==='lf'?'#A7C1B2':'#DDD5C8';
+  var tcol=type==='joy'?'#A07030':type==='lf'?'#2E6655':'#A09488';
+  return '<div style="padding:5px 0 5px 14px;font-size:11px;color:'+tcol+';display:flex;align-items:center;gap:6px">'
+    +'<div style="width:1.5px;height:18px;background:'+col+'"></div>'
+    +(label?'<span>'+escH(label)+'</span>':'')
+    +'</div>';
+}
+
+/* Init */
+renderOvTasks();
+renderRouteSteps();
+renderLeaveBy();
+loadJoyRatings().then(function(){ renderJoyChips(); });
+fetchSuggestions();
+</script>
+</body>
+</html>
