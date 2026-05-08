@@ -464,6 +464,20 @@ input[type=range]{accent-color:#8878C2}
 
   <div style="font-size:15px;font-weight:700;color:#2A2118;margin-bottom:13px">Your Route</div>
   <div id="route-steps"></div>
+
+  <div class="start-route-wrap" style="margin:8px -20px -36px">
+    <button class="start-route-btn" onclick="startNavMode()">
+      <span>Start Route</span>
+      <span style="opacity:.5;font-weight:400">·</span>
+      <span style="font-size:13px;opacity:.85">4 stops</span>
+      <span style="font-size:18px">→</span>
+    </button>
+    <div style="display:flex;justify-content:center;gap:4px;margin-top:10px">
+      <button class="maps-link" onclick="openMaps('google')">↗ Google Maps</button>
+      <span style="color:#DDD5C8;line-height:2">|</span>
+      <button class="maps-link" onclick="openMaps('apple')">↗ Apple Maps</button>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ MAP ═══ -->
